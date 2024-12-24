@@ -3,7 +3,7 @@ import FormData from "form-data";
 import fs from "fs";
 import process from "node:process";
 
-const translateWithWhisper = async (filePath) => {
+const translateWithWhisper = async (filePath, language) => {
   try {
     console.log("Transcribing file:", filePath);
 
@@ -12,7 +12,7 @@ const translateWithWhisper = async (filePath) => {
     const formData = new FormData();
     formData.append("file", fileStream);
     formData.append("model", "whisper-1");
-    formData.append("language", "de"); // Replace 'de' with desired language
+    formData.append("language", language); // Replace 'de' with desired language
     formData.append("temperature", 0.5);  // Sampling temperature
     formData.append("prompt", "This is an audio transcription task.");
 

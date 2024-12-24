@@ -70,6 +70,7 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
     let inputPath = req.file.path;
     const outputDir = `output/${Date.now()}`;
     const duration = req.body.duration || 5000;
+    const language = req.body.language || "en";
 
     try {
         // Check if input is already a WAV file
@@ -99,7 +100,7 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
         const transcriptions = [];
         for (const file of files) {
             const filePath = path.join(outputDir, file);
-            const transcription = await translateWithWhisper(filePath); // No conversion here
+            const transcription = await translateWithWhisper(filePath, language); // No conversion here
             transcriptions.push({ file: file, transcription });
         }
         const transcription = transcriptions.map((t) => t.transcription).join("\n");
