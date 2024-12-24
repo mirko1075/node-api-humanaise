@@ -162,4 +162,49 @@ router.post("/detect-language", upload.single("file"), async (req, res) => {
     }
 });
 
+// Route: Convert File to WAV
+router.post("/convert-to-wav", upload.single("file"), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).send("No file uploaded");
+    }
+    console.log("Converting file to WAV format...");
+    const inputPath = req.file.path;
+    const outputPath = `${inputPath}.wav`;
+    console.log("Output path:", outputPath);
+    console.log("Input path:", inputPath);
+    try {
+        // Convert file to WAV format
+        await convertToWav(inputPath, outputPath);
+
+        // Ensure the file exists before sending
+        if (!fs.existsSync(outputPath)) {
+            throw new Error("Converted file not found");
+        }
+
+        // Send the converted file
+        res.sendFile(path.resolve(outputPath), async (err) => {
+            if (err) {
+                console.error("Error sending file:", err);
+                if (!res.headersSent) {
+                    return res.status(500).send({ error: "Error sending file" });
+                }
+                return;
+            }
+
+            try {
+                // Cleanup after the file is sent
+                await fs.promises.unlink(outputPath);
+                await fs.promises.unlink(inputPath);
+            } catch (cleanupError) {
+                console.error("Error during cleanup:", cleanupError);
+            }
+        });
+    } catch (error) {
+        console.error("Error processing request:", error);
+        res.status(500).send({ error: error.message || "Failed to convert audio file" });
+    }
+});
+
+
+
 export default router;
