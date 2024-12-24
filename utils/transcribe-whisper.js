@@ -1,6 +1,7 @@
-const axios = require("axios");
-const FormData = require("form-data");
-const fs = require("fs");
+import axios from "axios";
+import FormData from "form-data";
+import fs from "fs";
+import process from "node:process";
 
 const translateWithWhisper = async (filePath) => {
   try {
@@ -29,4 +30,4 @@ const translateWithWhisper = async (filePath) => {
 }
 };
 
-module.exports = translateWithWhisper;
+export default translateWithWhisper;

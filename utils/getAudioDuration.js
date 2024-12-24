@@ -1,4 +1,4 @@
-const { exec } = require("child_process");
+import { exec } from "child_process";
 
 const getAudioDuration = (filePath) => {
   return new Promise((resolve, reject) => {
@@ -12,4 +12,4 @@ const getAudioDuration = (filePath) => {
   });
 };
 
-module.exports = getAudioDuration;
+export default getAudioDuration;

@@ -1,4 +1,4 @@
-const { exec } = require("child_process");
+import { exec } from "child_process";
 
 const checkAudioFormat = (filePath) => {
   return new Promise((resolve, reject) => {
@@ -12,4 +12,4 @@ const checkAudioFormat = (filePath) => {
   });
 };
 
-module.exports = checkAudioFormat;
+export default checkAudioFormat;

@@ -1,12 +1,13 @@
-const express = require("express");
-const cors = require("cors");
-const morgan = require("morgan");
-require("dotenv").config();
+import express from "express";
+import cors from "cors";
+import morgan from "morgan";
+import dotenv from "dotenv";
+import process from "node:process";
+import rateLimiter from "./middleware/rateLimiter.js";
+import apiKeyAuth from "./middleware/apiKeyAuth.js";
+import audioRoutes from "./routes/audio.js";
 
-const apiKeyAuth = require("./middleware/apiKeyAuth");
-const rateLimiter = require("./middleware/rateLimiter");
-const audioRoutes = require("./routes/audio");
-
+dotenv.config();
 const app = express();
 
 // Enable trust proxy

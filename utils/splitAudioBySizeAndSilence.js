@@ -1,5 +1,5 @@
-const { spawn } = require('child_process');
-const fs = require('fs');
+/* eslint-disable no-unused-vars */
+import { spawn } from 'child_process';
 
 async function splitAudioBySizeAndSilence(inputFile, outputPrefix, targetSizeBytes, tolerance = 10) {
   return new Promise((resolve, reject) => {
@@ -94,4 +94,4 @@ async function splitAudioBySizeAndSilence(inputFile, outputPrefix, targetSizeByt
   });
 }
 
-module.exports = splitAudioBySizeAndSilence ;
+export default splitAudioBySizeAndSilence ;

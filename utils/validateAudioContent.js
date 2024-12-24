@@ -1,8 +1,8 @@
-const { exec } = require('child_process');
+import { exec } from 'child_process';
 
 const validateAudioContent = async (filePath) => {
     const command = `ffmpeg -i "${filePath}" -af volumedetect -f null /dev/null`;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         exec(command, (error, stdout, stderr) => {
             const volumeMatch = stderr.match(/mean_volume:\s*(-?\d+(\.\d+)?)/);
             if (volumeMatch) {
@@ -16,4 +16,4 @@ const validateAudioContent = async (filePath) => {
 };
 
 
-module.exports = validateAudioContent;
+export default validateAudioContent;

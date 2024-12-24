@@ -1,4 +1,4 @@
-const exec = require("child_process").exec;
+import { exec } from "child_process";
 
 const convertToWav = (inputPath, outputPath) => {
     return new Promise((resolve, reject) => {
@@ -10,4 +10,4 @@ const convertToWav = (inputPath, outputPath) => {
     });
 };
 
-module.exports = convertToWav;
+export default convertToWav;

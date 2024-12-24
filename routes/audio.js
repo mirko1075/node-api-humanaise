@@ -1,12 +1,15 @@
-const express = require("express");
-const multer = require("multer");
-const { exec } = require("child_process");
-const fs = require("fs");
-const path = require("path");
+import express from "express";
+import multer from "multer";
+import { exec } from "child_process";
+import fs from "fs";
+import path from "path";
+import translateWithWhisper from "../utils/transcribe-whisper.js";
+import convertToWav from "../utils/convertToWav.js";
+import detectLanguage from "../utils/detectLanguage.js";
+import archiver from "archiver";
+
 const router = express.Router();
 const upload = multer({ dest: "uploads/" });
-const translateWithWhisper = require("../utils/transcribe-whisper");
-const convertToWav = require("../utils/convertToWav");
 
 // Route: Split Audio
 router.post("/split-audio", upload.single("file"), async (req, res) => {
@@ -30,7 +33,6 @@ router.post("/split-audio", upload.single("file"), async (req, res) => {
 
         // Create a zip file
         const zipPath = `${outputDir}.zip`;
-        const archiver = require("archiver");
         const archive = archiver("zip", { zlib: { level: 9 } });
         const output = fs.createWriteStream(zipPath);
 
@@ -117,5 +119,46 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
     }
 });
 
+router.post("/detect-language", upload.single("file"), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).send("No file uploaded");
+    }
 
-module.exports = router;
+    let inputPath = req.file.path;
+    try {
+        if (!inputPath.endsWith(".wav")) {
+            console.log("Converting input file to WAV...");
+            const wavPath = `${inputPath}.wav`;
+            await convertToWav(inputPath, wavPath);
+            fs.unlinkSync(inputPath); // Remove original file
+            inputPath = wavPath;
+        }
+
+        const snippetPath = `${inputPath}_snippet.wav`;
+        // Extract the first half minute using FFmpeg
+        const command = `ffmpeg -i "${inputPath}" -t 30 -c copy "${snippetPath}"`;
+        await new Promise((resolve, reject) => {
+            exec(command, (error) => {
+                if (error) return reject(error);
+                resolve();
+            });
+        });
+
+        const { detectedLanguage, languageConfidence } = await detectLanguage(snippetPath);
+
+        // Cleanup
+        fs.unlinkSync(inputPath);
+        fs.unlinkSync(snippetPath);
+
+        res.json({
+            message: "Language detected successfully",
+            language: detectedLanguage,
+            confidence: languageConfidence,
+        });
+    } catch (error) {
+        console.error("Error detecting language:", error);
+        res.status(500).send({ error: "Failed to detect language" });
+    }
+});
+
+export default router;
