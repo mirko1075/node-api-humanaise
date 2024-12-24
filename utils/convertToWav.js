@@ -6,7 +6,8 @@ const convertToWav = (inputPath, outputPath) => {
         exec(command, (error) => {
             if (error) return reject(new Error("Failed to convert audio to WAV format."));
             console.log('outputPath :>> ', outputPath);
-            resolve(outputPath);
+            const fileName = outputPath.split('/').pop();
+            resolve({fileName, file:outputPath});
         });
     });
 };
