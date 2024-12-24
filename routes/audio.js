@@ -165,46 +165,39 @@ router.post("/detect-language", upload.single("file"), async (req, res) => {
 // Route: Convert File to WAV
 router.post("/convert-to-wav", upload.single("file"), async (req, res) => {
     if (!req.file) {
-        return res.status(400).send("No file uploaded");
+        return res.status(400).json({ error: "No file uploaded" });
     }
-    console.log("Converting file to WAV format...");
+
     const inputPath = req.file.path;
     const outputPath = `${inputPath}.wav`;
-    console.log("Output path:", outputPath);
-    console.log("Input path:", inputPath);
+
     try {
-        // Convert file to WAV format
+        // Convert to WAV
         await convertToWav(inputPath, outputPath);
 
-        // Ensure the file exists before sending
-        if (!fs.existsSync(outputPath)) {
-            throw new Error("Converted file not found");
-        }
+        // Read the converted file data
+        const fileData = fs.readFileSync(outputPath);
+        const fileName = path.basename(outputPath);
 
-        // Send the converted file
-        res.sendFile(path.resolve(outputPath), async (err) => {
-            if (err) {
-                console.error("Error sending file:", err);
-                if (!res.headersSent) {
-                    return res.status(500).send({ error: "Error sending file" });
-                }
-                return;
-            }
+        // Log the response to debug
+        const response = {
+            name: fileName,
+            data: fileData.toString("base64"), // Base64 encode the binary data
+        };
+        console.log("Response:", response);
 
-            try {
-                // Cleanup after the file is sent
-                await fs.promises.unlink(outputPath);
-                await fs.promises.unlink(inputPath);
-            } catch (cleanupError) {
-                console.error("Error during cleanup:", cleanupError);
-            }
-        });
+        // Cleanup temporary files
+        fs.unlinkSync(inputPath); // Original uploaded file
+        fs.unlinkSync(outputPath); // Converted file
+
+        // Set explicit JSON response type
+        res.setHeader("Content-Type", "application/json");
+        res.json(response);
     } catch (error) {
         console.error("Error processing request:", error);
-        res.status(500).send({ error: error.message || "Failed to convert audio file" });
+        res.status(500).json({ error: "Failed to convert audio file" });
     }
 });
-
 
 
 export default router;
