@@ -3,16 +3,10 @@ const multer = require("multer");
 const { exec } = require("child_process");
 const fs = require("fs");
 const path = require("path");
-
 const router = express.Router();
 const upload = multer({ dest: "uploads/" });
+const transcribe = require("../utils/transcribe-whisper");
 
-// Helper Function: Mock Transcription (replace with Whisper API)
-const transcribeFile = async (filePath) => {
-    return new Promise((resolve) => {
-        setTimeout(() => resolve(`Transcription of ${filePath}`), 2000);
-    });
-};
 
 // Route: Split Audio
 router.post("/split-audio", upload.single("file"), async (req, res) => {
