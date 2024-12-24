@@ -7,53 +7,41 @@ const archiver = require("archiver");
 const cors = require("cors");
 const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
-require("dotenv").config(); // To use environment variables
+require("dotenv").config();
 
 const app = express();
 const upload = multer({ dest: "uploads/" });
 
-// ---------------------- Security Features ---------------------- //
+// Enable trust proxy
+app.set("trust proxy", 1);
 
-// 1. API Key Authentication
+// Security Features
 app.use((req, res, next) => {
     const apiKey = req.header("x-api-key");
-    console.log('apiKey :>> ', apiKey, process.env.API_KEY);
     if (apiKey !== process.env.API_KEY) {
         return res.status(403).send({ error: "Unauthorized" });
     }
-    console.log('authorized')
     next();
 });
 
-// 2. Rate Limiting
 const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per window
+    windowMs: 15 * 60 * 1000,
+    max: 100,
     message: "Too many requests, please try again later.",
 });
 app.use(limiter);
 
-// 3. CORS
-const corsOptions = {
-    origin: ["https://www.make.com", "http://localhost"], // Allow requests only from Make.com
-    methods: ["POST", "GET"],
-};
-app.use(cors(corsOptions));
+app.use(cors({ origin: ["https://www.make.com"], methods: ["POST", "GET"] }));
+app.use(morgan("combined"));
 
-// 4. Logging
-app.use(morgan("combined")); // Log all requests
-
-// ---------------------- File Splitting Endpoint ---------------------- //
-
+// File Splitting Endpoint
 app.post("/split-audio", upload.single("file"), (req, res) => {
     const inputPath = req.file.path;
     const outputDir = `output/${Date.now()}`;
-    const duration = req.body.duration || 30; // Default to 30 seconds
+    const duration = req.body.duration || 30;
 
-    // Create output directory
     fs.mkdirSync(outputDir, { recursive: true });
 
-    // FFmpeg command to split the file
     const command = `ffmpeg -i ${inputPath} -f segment -segment_time ${duration} -c copy ${outputDir}/output%03d.wav`;
 
     exec(command, (error) => {
@@ -62,7 +50,6 @@ app.post("/split-audio", upload.single("file"), (req, res) => {
             return res.status(500).send({ error: error.message });
         }
 
-        // Create a zip file
         const zipPath = `${outputDir}.zip`;
         const archive = archiver("zip", { zlib: { level: 9 } });
         const output = fs.createWriteStream(zipPath);
@@ -72,31 +59,21 @@ app.post("/split-audio", upload.single("file"), (req, res) => {
         archive.finalize();
 
         output.on("close", () => {
-            try {
-                // Convert zipPath to an absolute path
-                const absoluteZipPath = path.resolve(zipPath);
+            const absoluteZipPath = path.resolve(zipPath);
 
-                // Send the zip file to the client
-                res.sendFile(absoluteZipPath, (err) => {
-                    if (err) {
-                        console.error("Error sending file:", err);
-                        return res.status(500).send("Error sending file.");
-                    }
+            res.sendFile(absoluteZipPath, (err) => {
+                if (err) {
+                    console.error("Error sending file:", err);
+                    return res.status(500).send("Error sending file.");
+                }
 
-                    // Cleanup after sending the file
-                    fs.unlinkSync(absoluteZipPath);
-                    fs.rmSync(inputPath, { force: true });
-                    fs.rmSync(outputDir, { recursive: true, force: true });
-                });
-            } catch (err) {
-                console.error("Error during cleanup:", err);
-                res.status(500).send("Error during cleanup.");
-            }
+                fs.unlinkSync(absoluteZipPath);
+                fs.rmSync(outputDir, { recursive: true, force: true });
+                fs.rmSync(inputPath, { force: true });
+            });
         });
     });
 });
-
-// ---------------------- Start the Server ---------------------- //
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
