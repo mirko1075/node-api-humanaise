@@ -5,8 +5,8 @@ const fs = require("fs");
 const path = require("path");
 const router = express.Router();
 const upload = multer({ dest: "uploads/" });
-const transcribe = require("../utils/transcribe-whisper");
-
+const translateWithWhisper = require("../utils/transcribe-whisper");
+const convertToWav = require("../utils/convertToWav");
 
 // Route: Split Audio
 router.post("/split-audio", upload.single("file"), async (req, res) => {
@@ -61,16 +61,29 @@ router.post("/split-audio", upload.single("file"), async (req, res) => {
 
 // Route: Split and Transcribe
 router.post("/split-transcribe", upload.single("file"), async (req, res) => {
-    const inputPath = req.file.path;
+    if (!req.file) {
+        return res.status(400).send("No file uploaded");
+    }
+
+    let inputPath = req.file.path;
     const outputDir = `output/${Date.now()}`;
-    const duration = req.body.duration || 30;
+    const duration = req.body.duration || 5000;
 
     try {
+        // Check if input is already a WAV file
+        if (!inputPath.endsWith(".wav")) {
+            console.log("Converting input file to WAV...");
+            const wavPath = `${inputPath}.wav`;
+            await convertToWav(inputPath, wavPath);
+            fs.unlinkSync(inputPath); // Remove original file
+            inputPath = wavPath;
+        }
+
         // Create output directory
         fs.mkdirSync(outputDir, { recursive: true });
 
         // FFmpeg command to split audio
-        const command = `ffmpeg -i ${inputPath} -f segment -segment_time ${duration} -c copy ${outputDir}/output%03d.wav`;
+        const command = `ffmpeg -i "${inputPath}" -f segment -segment_time ${duration} -c copy ${outputDir}/output%03d.wav`;
 
         await new Promise((resolve, reject) => {
             exec(command, (error) => {
@@ -84,10 +97,10 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
         const transcriptions = [];
         for (const file of files) {
             const filePath = path.join(outputDir, file);
-            const transcription = await transcribeFile(filePath);
+            const transcription = await translateWithWhisper(filePath); // No conversion here
             transcriptions.push({ file: file, transcription });
         }
-
+        const transcription = transcriptions.map((t) => t.transcription).join("\n");
         // Cleanup
         fs.rmSync(inputPath, { force: true });
         fs.rmSync(outputDir, { recursive: true, force: true });
@@ -96,11 +109,13 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
         res.json({
             message: "Transcription completed successfully",
             transcriptions,
+            transcription
         });
     } catch (error) {
         console.error("Error processing request:", error);
         res.status(500).send({ error: "Failed to process audio file" });
     }
 });
+
 
 module.exports = router;
