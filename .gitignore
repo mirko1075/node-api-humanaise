@@ -4,3 +4,4 @@ uploads/*
 .env
 package-lock.json
 converted/*
+google-credentials.json

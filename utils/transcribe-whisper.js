@@ -3,10 +3,8 @@ import FormData from "form-data";
 import fs from "fs";
 import process from "node:process";
 
-const translateWithWhisper = async (filePath, language) => {
+const transcribeWithWhisper = async (filePath, language) => {
   try {
-    console.log("Transcribing file:", filePath);
-
     // Send the WAV file to Whisper
     const fileStream = fs.createReadStream(filePath);
     const formData = new FormData();
@@ -22,7 +20,6 @@ const translateWithWhisper = async (filePath, language) => {
             ...formData.getHeaders(),
         },
     });
-
     return response.data.text;
 } catch (error) {
     console.error("Error transcribing file:", error.response?.data || error.message);
@@ -30,4 +27,4 @@ const translateWithWhisper = async (filePath, language) => {
 }
 };
 
-export default translateWithWhisper;
+export default transcribeWithWhisper;

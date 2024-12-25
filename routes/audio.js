@@ -3,10 +3,11 @@ import multer from "multer";
 import { exec } from "child_process";
 import fs from "fs";
 import path from "path";
-import translateWithWhisper from "../utils/transcribe-whisper.js";
+import transcribeWithWhisper from "../utils/transcribe-whisper.js";
 import convertToWav from "../utils/convertToWav.js";
 import detectLanguage from "../utils/detectLanguage.js";
 import archiver from "archiver";
+import transcribeWithGoogle from "../utils/transcribeWithGoogle.js";
 
 const router = express.Router();
 const upload = multer({ dest: "uploads/" });
@@ -97,13 +98,21 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
 
         // Transcribe each file
         const files = fs.readdirSync(outputDir).filter((file) => file.endsWith(".wav"));
-        const transcriptions = [];
+        const whisperTranscriptions = [];
         for (const file of files) {
             const filePath = path.join(outputDir, file);
-            const transcription = await translateWithWhisper(filePath, language); // No conversion here
-            transcriptions.push({ file: file, transcription });
+            const transcription = await transcribeWithWhisper(filePath, language); // No conversion here
+            whisperTranscriptions.push({ file: file, transcription });
         }
-        const transcription = transcriptions.map((t) => t.transcription).join("\n");
+        const whisperTranscription = whisperTranscriptions.map((t) => t.transcription).join("\n");
+
+        const googleTranscriptions = [];
+        for (const file of files) {
+            const filePath = path.join(outputDir, file);
+            const transcription = await transcribeWithGoogle(filePath, {language, translate: false}); // No conversion here
+            whisperTranscriptions.push({ file: file, transcription });
+        }
+        const googleTranscription = googleTranscriptions.map((t) => t.transcription).join("\n");
         // Cleanup
         fs.rmSync(inputPath, { force: true });
         fs.rmSync(outputDir, { recursive: true, force: true });
@@ -111,14 +120,53 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
         // Return combined transcriptions
         res.json({
             message: "Transcription completed successfully",
-            transcriptions,
-            transcription
+            whisperTranscriptions,
+            whisperTranscription,
+            googleTranscriptions,
+            googleTranscription,
         });
     } catch (error) {
         console.error("Error processing request:", error);
         res.status(500).send({ error: "Failed to process audio file" });
     }
 });
+
+// Route: Transcribe Audio
+router.post("/transcribe", upload.single("file"), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).send("No file uploaded");
+    }
+
+    let inputPath = req.file.path;
+    const language = req.body.language || "en";
+
+    try {
+        // If the file is not a WAV file, convert it
+        if (!inputPath.endsWith(".wav")) {
+            const wavPath = `${inputPath}.wav`;
+            await convertToWav(inputPath, wavPath);
+            fs.unlinkSync(inputPath); // Remove original file
+            inputPath = wavPath;
+        }
+
+        // Transcribe the audio file
+        const whisperTranscription = await transcribeWithWhisper(inputPath, language);
+        const googleTranscription = await transcribeWithGoogle(inputPath, { language, translate: false });
+        // Cleanup
+        fs.unlinkSync(inputPath);
+
+        // Return transcription
+        res.json({
+            message: "Transcription successful",
+            whisperTranscription,
+            googleTranscription
+        });
+    } catch (error) {
+        console.error("Error processing request:", error);
+        res.status(500).send({ error: "Failed to transcribe audio file" });
+    }
+});
+
 
 router.post("/detect-language", upload.single("file"), async (req, res) => {
     if (!req.file) {
