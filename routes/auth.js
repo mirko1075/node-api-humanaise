@@ -4,11 +4,14 @@ import jwt from 'jsonwebtoken';
 import knex from '../db/knex.js';
 import dotenv from 'dotenv';
 import process from 'node:process';
+import { authenticateAuth0Token } from '../middleware/auth.js';
+
 dotenv.config();
 
 const router = express.Router();
 
-// Register User
+
+
 // Register User
 router.post('/register', async (req, res) => {
   if (!req.body) {
@@ -114,21 +117,63 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Verify JWT token
-router.post('/verify-token', (req, res) => {
-  const token = req.headers.authorization?.split(' ')[1];
 
-  if (!token) {
-    return res.status(401).json({ error: 'No token provided.' });
-  }
+// Register or Track User
+router.post('/callback', authenticateAuth0Token, async (req, res) => {
+  const { email, name, sub: auth0Id } = req.user;
+  const { organizationName } = req.body;
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    res.status(200).json({ message: 'Token is valid.', user: decoded });
+      let user = await knex('users').where({ email }).first();
+
+      if (!user) {
+          // Register the new user
+          const [userId] = await knex('users')
+              .insert({ email, name, auth0_id: auth0Id })
+              .returning('id');
+
+          if (organizationName) {
+              // Check if organization exists
+              let organization = await knex('organizations')
+                  .where({ name: organizationName })
+                  .first();
+
+              if (!organization) {
+                  return res.status(404).json({ error: 'Organization not found' });
+              }
+
+              // Link user to organization
+              await knex('organization_members').insert({
+                  user_id: userId,
+                  organization_id: organization.id,
+              });
+
+              return res.status(200).json({ message: 'User linked to organization' });
+          } else {
+              // Create a default organization
+              const [organizationId] = await knex('organizations')
+                  .insert({ name: `${name}'s Organization`, created_by: userId })
+                  .returning('id');
+
+              await knex('organization_members').insert({
+                  user_id: userId,
+                  organization_id: organizationId,
+              });
+
+              return res.status(201).json({ message: 'User registered with default organization' });
+          }
+      }
+
+      res.status(200).json({ message: 'User already exists' });
   } catch (error) {
-    console.error('Token verification failed:', error.message || error);
-    res.status(401).json({ error: 'Invalid token.' });
+      console.error('Error during user registration:', error);
+      res.status(500).json({ error: 'Failed to process request' });
   }
+});
+
+// Validate Token
+router.post('/verify-token', authenticateAuth0Token, (req, res) => {
+  res.status(200).json({ message: 'Token is valid', user: req.user });
 });
 
 export default router;
