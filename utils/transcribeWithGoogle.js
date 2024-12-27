@@ -1,9 +1,12 @@
 import { SpeechClient } from "@google-cloud/speech";
 import fs from "fs";
-
+import uploadToGCS from "./uploadToGCS.js";
+import process from "node:process";
+import dotenv from "dotenv";
+dotenv.config();
 // Initialize the Google Cloud Speech-to-Text client
 const speechClient = new SpeechClient();
-const credentialsPath = '/etc/secrets/google-credentials.json';
+const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
 if (!fs.existsSync(credentialsPath)) {
   console.error(`Error: File does not exist at ${credentialsPath}`);
