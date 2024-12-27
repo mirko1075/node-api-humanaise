@@ -10,7 +10,7 @@ if (!fs.existsSync(credentialsPath)) {
 } else {
   console.log('Success: File exists and is accessible.');
 }
-const transcribeWithGoogle = async (filePath, options = { translate: false, language: "en" }) => {
+const transcribeWithGoogle1Minute = async (filePath, options = { translate: false, language: "en" }) => {
     try {
         if (!fs.existsSync(filePath)) {
             throw new Error(`File not found: ${filePath}`);
