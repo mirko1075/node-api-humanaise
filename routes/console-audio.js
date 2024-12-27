@@ -69,11 +69,7 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
     if (!req.file) {
         return res.status(400).send("No file uploaded");
     }
-<<<<<<< HEAD
     console.log('Called split and transcript');
-=======
-
->>>>>>> cc73f5f57b1eb2be2db61ffd9885ed3739dbb8c4
     let inputPath = req.file.path;
     const outputDir = `output/${Date.now()}`;
     const duration = req.body.duration || 5000;
@@ -81,42 +77,29 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
 
     try {
         // Check if input is already a WAV file
-<<<<<<< HEAD
         console.log("Input file info:", {
             originalname: req.file.originalname,
             mimetype: req.file.mimetype,
         });
-=======
->>>>>>> cc73f5f57b1eb2be2db61ffd9885ed3739dbb8c4
         if (!inputPath.endsWith(".wav")) {
             console.log("Converting input file to WAV...");
             const wavPath = `${inputPath}.wav`;
             await convertToWav(inputPath, wavPath);
-<<<<<<< HEAD
 
             if (!fs.existsSync(wavPath)) {
                 throw new Error("WAV conversion failed: Output file not created.");
             }
 
-=======
->>>>>>> cc73f5f57b1eb2be2db61ffd9885ed3739dbb8c4
             fs.unlinkSync(inputPath); // Remove original file
             inputPath = wavPath;
         }
 
         // Create output directory
         fs.mkdirSync(outputDir, { recursive: true });
-<<<<<<< HEAD
         console.log('Output directory created');
         // FFmpeg command to split audio
         const command = `ffmpeg -i "${inputPath}" -f segment -segment_time ${duration} -c copy ${outputDir}/output%03d.wav`;
         console.log('Calling command to split audio:', command);
-=======
-
-        // FFmpeg command to split audio
-        const command = `ffmpeg -i "${inputPath}" -f segment -segment_time ${duration} -c copy ${outputDir}/output%03d.wav`;
-
->>>>>>> cc73f5f57b1eb2be2db61ffd9885ed3739dbb8c4
         await new Promise((resolve, reject) => {
             exec(command, (error) => {
                 if (error) return reject(error);
@@ -127,7 +110,6 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
         // Transcribe each file
         const files = fs.readdirSync(outputDir).filter((file) => file.endsWith(".wav"));
         const whisperTranscriptions = [];
-<<<<<<< HEAD
         
         for (const file of files) {
             const filePath = path.join(outputDir, file);
@@ -137,19 +119,11 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
             console.log('Transcription with Whisper:', transcription);
         }
         console.log('Whisper transcriptions:', whisperTranscriptions);
-=======
-        for (const file of files) {
-            const filePath = path.join(outputDir, file);
-            const transcription = await transcribeWithWhisper(filePath, language); // No conversion here
-            whisperTranscriptions.push({ file: file, transcription });
-        }
->>>>>>> cc73f5f57b1eb2be2db61ffd9885ed3739dbb8c4
         const whisperTranscription = whisperTranscriptions.map((t) => t.transcription).join("\n");
 
         const googleTranscriptions = [];
         for (const file of files) {
             const filePath = path.join(outputDir, file);
-<<<<<<< HEAD
             const duration = await getAudioDuration(inputPath);
             console.log(`Audio duration: ${duration} seconds`);
             let googleTranscription = "";
@@ -165,16 +139,7 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
         console.log('Google transcriptions:', googleTranscriptions);
         const googleTranscription = googleTranscriptions.map((t) => t.googleTranscription.transcription).join("\n");
         console.log('Google transcription:', googleTranscription);
-=======
-            const transcription = await transcribeWithGoogle1Minute(filePath, {language, translate: false}); // No conversion here
-            whisperTranscriptions.push({ file: file, transcription });
-        }
-        const googleTranscription = googleTranscriptions.map((t) => t.transcription).join("\n");
-        // Cleanup
-        fs.rmSync(inputPath, { force: true });
-        fs.rmSync(outputDir, { recursive: true, force: true });
->>>>>>> cc73f5f57b1eb2be2db61ffd9885ed3739dbb8c4
-
+        fs.writeFileSync(filename, textString);
         // Return combined transcriptions
         res.json({
             message: "Transcription completed successfully",
@@ -186,13 +151,10 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
     } catch (error) {
         console.error("Error processing request:", error);
         res.status(500).send({ error: "Failed to process audio file" });
-<<<<<<< HEAD
     } finally {
         // Cleanup
         fs.rmSync(inputPath, { force: true });
         fs.rmSync(outputDir, { recursive: true, force: true });
-=======
->>>>>>> cc73f5f57b1eb2be2db61ffd9885ed3739dbb8c4
     }
 });
 
@@ -239,7 +201,6 @@ router.post("/detect-language", upload.single("file"), async (req, res) => {
     }
 
     let inputPath = req.file.path;
-<<<<<<< HEAD
 
     try {
         console.log("Input path for language detection:", inputPath);
@@ -247,27 +208,20 @@ router.post("/detect-language", upload.single("file"), async (req, res) => {
             originalname: req.file.originalname,
             mimetype: req.file.mimetype,
         });
-=======
-    try {
->>>>>>> cc73f5f57b1eb2be2db61ffd9885ed3739dbb8c4
         if (!inputPath.endsWith(".wav")) {
             console.log("Converting input file to WAV...");
             const wavPath = `${inputPath}.wav`;
             await convertToWav(inputPath, wavPath);
-<<<<<<< HEAD
 
             if (!fs.existsSync(wavPath)) {
                 throw new Error("WAV conversion failed: Output file not created.");
             }
 
-=======
->>>>>>> cc73f5f57b1eb2be2db61ffd9885ed3739dbb8c4
             fs.unlinkSync(inputPath); // Remove original file
             inputPath = wavPath;
         }
 
         const snippetPath = `${inputPath}_snippet.wav`;
-<<<<<<< HEAD
         console.log("Extracting 30-second snippet for language detection...");
         const command = `ffmpeg -i "${inputPath}" -t 30 -c copy "${snippetPath}"`;
         await new Promise((resolve, reject) => {
@@ -277,26 +231,15 @@ router.post("/detect-language", upload.single("file"), async (req, res) => {
                     return reject(error);
                 }
                 console.log("Snippet extracted:", stdout);
-=======
-        // Extract the first half minute using FFmpeg
-        const command = `ffmpeg -i "${inputPath}" -t 30 -c copy "${snippetPath}"`;
-        await new Promise((resolve, reject) => {
-            exec(command, (error) => {
-                if (error) return reject(error);
->>>>>>> cc73f5f57b1eb2be2db61ffd9885ed3739dbb8c4
                 resolve();
             });
         });
 
-<<<<<<< HEAD
         if (!fs.existsSync(snippetPath)) {
             throw new Error("Snippet extraction failed: Output file not created.");
         }
 
         const { detectedLanguage, languageConfidence, languageCode } = await detectLanguage(snippetPath);
-=======
-        const { detectedLanguage, languageConfidence } = await detectLanguage(snippetPath);
->>>>>>> cc73f5f57b1eb2be2db61ffd9885ed3739dbb8c4
 
         // Cleanup
         fs.unlinkSync(inputPath);
@@ -305,26 +248,16 @@ router.post("/detect-language", upload.single("file"), async (req, res) => {
         res.json({
             message: "Language detected successfully",
             language: detectedLanguage,
-<<<<<<< HEAD
             languageCode: languageCode,
-=======
->>>>>>> cc73f5f57b1eb2be2db61ffd9885ed3739dbb8c4
             confidence: languageConfidence,
         });
     } catch (error) {
         console.error("Error detecting language:", error);
-<<<<<<< HEAD
         res.status(500).send({ error: "Failed to detect language", message: error, language: undefined, languageCode: undefined, confidence: undefined });
     }
 });
 
 
-=======
-        res.status(500).send({ error: "Failed to detect language" });
-    }
-});
-
->>>>>>> cc73f5f57b1eb2be2db61ffd9885ed3739dbb8c4
 // Route: Convert File to WAV
 router.post("/convert-to-wav", upload.single("file"), async (req, res) => {
     if (!req.file) {
@@ -360,6 +293,39 @@ router.post("/convert-to-wav", upload.single("file"), async (req, res) => {
         console.error("Error processing request:", error);
         res.status(500).json({ error: "Failed to convert audio file" });
     }
+});
+
+router.post('/create-text-file', (req, res) => {
+    const __dirname = path.resolve();
+    const textString = req.body.text; // Assuming the text is sent in the request body
+    const fileName = req.body.fileName || 'file' // Default file name
+    const nowDate = new Date();
+    const day = nowDate.getDate();
+    const month = nowDate.getMonth() + 1; // Months are zero-based
+    const year = nowDate.getFullYear();
+    const timestamp = nowDate.getTime();
+    const dirname = `${__dirname}/output/${year}-${month}-${day}/`;
+    const textFileName = `${fileName}-${timestamp}.txt`;
+
+    if (!textString) {
+        return res.status(400).json({ error: 'Missing text content' });
+    }
+
+    // Ensure the directory exists
+    fs.mkdirSync(dirname, { recursive: true });
+
+    // Write the text string to a file
+    console.log('dirname:', dirname);
+    console.log('textFileName:', textFileName);
+    fs.writeFileSync(dirname + textFileName, textString);
+
+    // Set the appropriate headers for file download
+    res.setHeader('Content-Disposition', `attachment; filename="${textFileName}"`);
+    res.setHeader('Content-Type', 'text/plain');
+
+    // Send the file as the response
+    console.log('Sending file:', dirname + textFileName);
+    res.sendFile(dirname + textFileName);
 });
 
 export default router;
