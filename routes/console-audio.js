@@ -9,7 +9,8 @@ import detectLanguage from "../utils/detectLanguage.js";
 import archiver from "archiver";
 import {transcribeWithGoogle, transcribeWithGoogle1Minute} from "../utils/transcribeWithGoogle.js";
 import {getAudioDuration} from "../utils/getAudioDuration.js";
-
+import {translateWithWhisper} from "../utils/translateWithWhisper.js";
+import {translateWithGoogle} from "../utils/translateWithGoogle.js";
 
 const router = express.Router();
 const upload = multer({ dest: "uploads/" });
@@ -198,6 +199,36 @@ router.post("/transcribe", upload.single("file"), async (req, res) => {
     }
 });
 
+router.post('/translate', async (req, res) => {
+    const { text, language, isMultiModel } = req.body;
+
+    // Validate input
+    if (!text || !language) {
+        return res.status(400).json({ error: 'Text and language are required.' });
+    }
+
+    try {
+        let translations = {};
+
+        // Perform Whisper translation
+        try {
+            translations.whisper = await translateWithWhisper(text, language);
+        } catch (error) {
+            console.error(error.message);
+        }
+
+        // Perform Google translation if isMultiModel is true
+        if (isMultiModel) {
+            console.log('Translating with Google Translate...');
+            translations.google = await translateWithGoogle(text, language);
+        }
+
+        res.status(200).json({ translations });
+    } catch (error) {
+        console.error('Error during translation:', error);
+        res.status(500).json({ error: 'Failed to translate the text.' });
+    }
+});
 
 router.post("/detect-language", upload.single("file"), async (req, res) => {
     if (!req.file) {
