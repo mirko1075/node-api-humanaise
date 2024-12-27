@@ -1,17 +1,15 @@
 import { SpeechClient } from "@google-cloud/speech";
 import fs from "fs";
-import process from "node:process";
-
-// Dynamically set path for Google credentials
-const googleCredentialsPath = process.env.NODE_ENV === "production"
-    ? "/etc/secrets/google-credentials.json"  // Path in Render
-    : "./google-credentials.json"; // Path for local development
-
-process.env.GOOGLE_APPLICATION_CREDENTIALS = googleCredentialsPath;
 
 // Initialize the Google Cloud Speech-to-Text client
 const speechClient = new SpeechClient();
+const credentialsPath = '/etc/secrets/google-credentials.json';
 
+if (!fs.existsSync(credentialsPath)) {
+  console.error(`Error: File does not exist at ${credentialsPath}`);
+} else {
+  console.log('Success: File exists and is accessible.');
+}
 const transcribeWithGoogle = async (filePath, options = { translate: false, language: "en" }) => {
     try {
         if (!fs.existsSync(filePath)) {
