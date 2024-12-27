@@ -17,7 +17,7 @@ const transcribeWithGoogle = async (filePath, options = { translate: false, lang
         if (!fs.existsSync(filePath)) {
             throw new Error(`File not found: ${filePath}`);
         }
-
+        console.log(`Transcribing audio file: ${filePath}`);
         const audioBytes = fs.readFileSync(filePath).toString("base64");
 
         const audio = {
@@ -36,9 +36,9 @@ const transcribeWithGoogle = async (filePath, options = { translate: false, lang
             audio: audio,
             config: config,
         };
-
+        console.log('request:', request);
         const [response] = await speechClient.recognize(request);
-
+        console.log('response:', response);
         const transcription = response.results
             .map((result) => result.alternatives[0].transcript)
             .join("\n");
@@ -47,7 +47,7 @@ const transcribeWithGoogle = async (filePath, options = { translate: false, lang
             const translatedText = await translateText(transcription, options.language);
             return { transcription, translation: translatedText };
         }
-
+        console.log('transcription:', transcription);
         return { transcription };
 
     } catch (error) {

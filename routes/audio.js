@@ -67,7 +67,7 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
     if (!req.file) {
         return res.status(400).send("No file uploaded");
     }
-
+    console.log('Called split and transcript');
     let inputPath = req.file.path;
     const outputDir = `output/${Date.now()}`;
     const duration = req.body.duration || 5000;
@@ -75,6 +75,7 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
 
     try {
         // Check if input is already a WAV file
+        console.log('Calling converte file to WAV file')
         if (!inputPath.endsWith(".wav")) {
             console.log("Converting input file to WAV...");
             const wavPath = `${inputPath}.wav`;
@@ -82,13 +83,13 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
             fs.unlinkSync(inputPath); // Remove original file
             inputPath = wavPath;
         }
-
+        
         // Create output directory
         fs.mkdirSync(outputDir, { recursive: true });
-
+        console.log('Output directory created');
         // FFmpeg command to split audio
         const command = `ffmpeg -i "${inputPath}" -f segment -segment_time ${duration} -c copy ${outputDir}/output%03d.wav`;
-
+        console.log('Calling command to split audio:', command);
         await new Promise((resolve, reject) => {
             exec(command, (error) => {
                 if (error) return reject(error);
@@ -99,11 +100,13 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
         // Transcribe each file
         const files = fs.readdirSync(outputDir).filter((file) => file.endsWith(".wav"));
         const whisperTranscriptions = [];
+        console.log('Files:', files);
         for (const file of files) {
             const filePath = path.join(outputDir, file);
             const transcription = await transcribeWithWhisper(filePath, language); // No conversion here
             whisperTranscriptions.push({ file: file, transcription });
         }
+        console.log('Whisper transcriptions:', whisperTranscriptions);
         const whisperTranscription = whisperTranscriptions.map((t) => t.transcription).join("\n");
 
         const googleTranscriptions = [];
@@ -112,7 +115,9 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
             const transcription = await transcribeWithGoogle(filePath, {language, translate: false}); // No conversion here
             whisperTranscriptions.push({ file: file, transcription });
         }
+        console.log('Google transcriptions:', googleTranscriptions);
         const googleTranscription = googleTranscriptions.map((t) => t.transcription).join("\n");
+        console.log('Google transcription:', googleTranscription);
         // Cleanup
         fs.rmSync(inputPath, { force: true });
         fs.rmSync(outputDir, { recursive: true, force: true });
