@@ -71,7 +71,7 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
     console.log('Called split and transcript');
     let inputPath = req.file.path;
     const outputDir = `output/${Date.now()}`;
-    const duration = req.body.duration || 5000;
+    const duration = req.body.duration || 4000;
     const language = req.body.language || "en";
 
     try {
