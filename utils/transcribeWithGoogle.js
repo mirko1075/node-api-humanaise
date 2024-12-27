@@ -1,19 +1,18 @@
 import { SpeechClient } from "@google-cloud/speech";
 import fs from "fs";
-import process from "node:process";
 import uploadToGCS from "./uploadToGCS.js";
-
-const credentialsPath = '/etc/secrets/google-credentials.json';
+import process from "node:process";
+import dotenv from "dotenv";
+dotenv.config();
+// Initialize the Google Cloud Speech-to-Text client
+const speechClient = new SpeechClient();
+const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
 if (!fs.existsSync(credentialsPath)) {
   console.error(`Error: File does not exist at ${credentialsPath}`);
 } else {
   console.log('Success: File exists and is accessible.');
 }
-
-// Initialize the Google Cloud Speech-to-Text client
-const speechClient = new SpeechClient();
-
 const transcribeWithGoogle1Minute = async (filePath, options = { translate: false, language: "en" }) => {
     try {
         if (!fs.existsSync(filePath)) {
