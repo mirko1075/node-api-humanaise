@@ -21,7 +21,7 @@ app.use(cors({ origin: ["https://www.make.com"], methods: ["POST", "GET"] }));
 app.use(morgan("combined"));
 
 // File Splitting Endpoint
-app.use("/v1/audio", audioRoutes);
+app.use("/v1/console/audio", audioRoutes);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

@@ -20,8 +20,10 @@ const detectLanguage = async (filePath) => {
       // Extract the detected language and confidence
       const detectedLanguage = response.data.results.channels[0].detected_language;
       const languageConfidence = response.data.results.channels[0].language_confidence;
-
-      return { detectedLanguage, languageConfidence }; // Return both detected language and confidence
+      const languageCode = response.data.results.channels[0].languageCode;
+      console.log('response.data.results.channels[0] :>> ', response.data.results.channels[0]);
+      console.log("Detected language:", detectedLanguage, "Confidence:", languageConfidence);
+      return { detectedLanguage, languageConfidence, languageCode }; // Return both detected language and confidence
   } catch (error) {
       console.error("Error in Deepgram detection:", error.response?.data || error.message);
       throw new Error("Failed to detect language.");

@@ -1,5 +1,7 @@
 import { SpeechClient } from "@google-cloud/speech";
 import fs from "fs";
+import process from "node:process";
+import uploadToGCS from "./uploadToGCS.js";
 
 const credentialsPath = '/etc/secrets/google-credentials.json';
 
@@ -12,7 +14,7 @@ if (!fs.existsSync(credentialsPath)) {
 // Initialize the Google Cloud Speech-to-Text client
 const speechClient = new SpeechClient();
 
-const transcribeWithGoogle = async (filePath, options = { translate: false, language: "en" }) => {
+const transcribeWithGoogle1Minute = async (filePath, options = { translate: false, language: "en" }) => {
     try {
         if (!fs.existsSync(filePath)) {
             throw new Error(`File not found: ${filePath}`);
@@ -23,20 +25,20 @@ const transcribeWithGoogle = async (filePath, options = { translate: false, lang
         const audio = {
             content: audioBytes,
         };
-
+        const {translate, language} = options;
         const config = {
             encoding: "LINEAR16",
             sampleRateHertz: 16000,
-            languageCode: options.language, // Default language code
-            
+            languageCode: language, // Default language code
+            translate: translate,
+            punctuation: true,
         };
-
         // Speech-to-Text request
         const request = {
             audio: audio,
             config: config,
         };
-        console.log('request:', request);
+        console.log('Calling speechClient.recognize()...');
         const [response] = await speechClient.recognize(request);
         console.log('response:', response);
         const transcription = response.results
@@ -62,4 +64,54 @@ const translateText = async (text, language) => {
     return `Translated text in ${language}: ${text}`;
 };
 
-export default transcribeWithGoogle;
+async function transcribeWithGoogle(filePath, options) {
+    try {
+        const bucketName = process.env.GCS_BUCKET_NAME; // Ensure you set this in your environment
+        if (!bucketName) {
+            throw new Error("GCS bucket name is not configured in the environment.");
+        }
+        const { language, translate } = options;
+        // Upload file to GCS
+        const gcsUri = await uploadToGCS(filePath, bucketName);
+
+        console.log(`Transcribing file with GCS URI: ${gcsUri}`);
+
+        // Config for the transcription
+        const request = {
+            audio: {
+                uri: gcsUri, // Use GCS URI
+            },
+            config: {
+                encoding: 'LINEAR16',
+                sampleRateHertz: 16000,
+                languageCode: language, // Replace with your desired language code
+                translate: translate,
+                punctuation: true,
+            },
+        };
+
+        // Call LongRunningRecognize
+        console.log("Calling LongRunningRecognize...");
+        const [operation] = await speechClient.longRunningRecognize(request);
+
+        // Wait for the operation to complete
+        console.log("Waiting for transcription to complete...");
+        const [response] = await operation.promise();
+
+        // Extract and return transcription results
+        const transcription = response.results
+            .map(result => result.alternatives[0].transcript)
+            .join('\n');
+        if (options.translate) {
+            const translatedText = await translateText(transcription, options.language);
+            return { transcription, translation: translatedText };
+        }
+        console.log('transcription:', transcription);
+        return { transcription };
+    } catch (error) {
+        console.error("Error during transcription:", error);
+        throw new Error("Failed to transcribe the audio.");
+    }
+}
+
+export  {transcribeWithGoogle1Minute, transcribeWithGoogle};
