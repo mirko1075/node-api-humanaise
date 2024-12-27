@@ -74,6 +74,7 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
     const outputDir = `output/${Date.now()}`;
     const duration = req.body.duration || 5000;
     const language = req.body.language || "en";
+    const doubleModel = req.body.doubleModel || false;
 
     try {
         // Check if input is already a WAV file
@@ -120,34 +121,33 @@ router.post("/split-transcribe", upload.single("file"), async (req, res) => {
         }
         console.log('Whisper transcriptions:', whisperTranscriptions);
         const whisperTranscription = whisperTranscriptions.map((t) => t.transcription).join("\n");
-
-        const googleTranscriptions = [];
-        for (const file of files) {
-            const filePath = path.join(outputDir, file);
-            const duration = await getAudioDuration(inputPath);
-            console.log(`Audio duration: ${duration} seconds`);
-            let googleTranscription = "";
-            console.log('Transcribing file with Google:', filePath);
-            if (duration <= 60) {
-                googleTranscription = await transcribeWithGoogle1Minute(filePath, {language, translate: false}); // No conversion here
-            } else {
-                googleTranscription = await transcribeWithGoogle(filePath, {language, translate: false}); // No conversion here
-            }
-            console.log('Transcription with Google:', googleTranscription);
-            googleTranscriptions.push({ file: file, googleTranscription });
-        }
-        console.log('Google transcriptions:', googleTranscriptions);
-        const googleTranscription = googleTranscriptions.map((t) => t.googleTranscription.transcription).join("\n");
-        console.log('Google transcription:', googleTranscription);
-        fs.writeFileSync(filename, textString);
-        // Return combined transcriptions
-        res.json({
+        const responseObject = {
             message: "Transcription completed successfully",
             whisperTranscriptions,
             whisperTranscription,
-            googleTranscriptions,
-            googleTranscription,
-        });
+        }
+        if (doubleModel) {
+            const googleTranscriptions = [];
+            for (const file of files) {
+                const filePath = path.join(outputDir, file);
+                const duration = await getAudioDuration(inputPath);
+                console.log(`Audio duration: ${duration} seconds`);
+                let googleTranscription = "";
+                console.log('Transcribing file with Google:', filePath);
+                if (duration <= 60) {
+                    googleTranscription = await transcribeWithGoogle1Minute(filePath, {language, translate: false}); // No conversion here
+                } else {
+                    googleTranscription = await transcribeWithGoogle(filePath, {language, translate: false}); // No conversion here
+                }
+                googleTranscriptions.push({ file: file, googleTranscription });
+            }
+            console.log('Google transcriptions:', googleTranscriptions);
+            const googleTranscription = googleTranscriptions.map((t) => t.googleTranscription.transcription).join("\n");
+            responseObject.googleTranscriptions = googleTranscriptions;
+            responseObject.googleTranscription = googleTranscription;
+        }
+        // Return combined transcriptions
+        res.json({...responseObject});
     } catch (error) {
         console.error("Error processing request:", error);
         res.status(500).send({ error: "Failed to process audio file" });
@@ -166,6 +166,7 @@ router.post("/transcribe", upload.single("file"), async (req, res) => {
 
     let inputPath = req.file.path;
     const language = req.body.language || "en";
+    const doubleModel = req.body.doubleModel || false;
 
     try {
         // If the file is not a WAV file, convert it
@@ -178,16 +179,19 @@ router.post("/transcribe", upload.single("file"), async (req, res) => {
 
         // Transcribe the audio file
         const whisperTranscription = await transcribeWithWhisper(inputPath, language);
-        const googleTranscription = await transcribeWithGoogle1Minute(inputPath, { language, translate: false });
+        const responseObject = {
+            message: "Transcription successful",
+            whisperTranscription,
+        }
+        if (doubleModel) {
+            const googleTranscription = await transcribeWithGoogle1Minute(inputPath, { language, translate: false });
+            responseObject.googleTranscription = googleTranscription;
+        }
         // Cleanup
         fs.unlinkSync(inputPath);
 
         // Return transcription
-        res.json({
-            message: "Transcription successful",
-            whisperTranscription,
-            googleTranscription
-        });
+        res.json({...responseObject});
     } catch (error) {
         console.error("Error processing request:", error);
         res.status(500).send({ error: "Failed to transcribe audio file" });
@@ -223,7 +227,7 @@ router.post("/detect-language", upload.single("file"), async (req, res) => {
 
         const snippetPath = `${inputPath}_snippet.wav`;
         console.log("Extracting 30-second snippet for language detection...");
-        const command = `ffmpeg -i "${inputPath}" -t 30 -c copy "${snippetPath}"`;
+        const command = `ffmpeg -i "${inputPath}" -t 100 -c copy "${snippetPath}"`;
         await new Promise((resolve, reject) => {
             exec(command, (error, stdout, stderr) => {
                 if (error) {

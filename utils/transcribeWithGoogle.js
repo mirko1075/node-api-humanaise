@@ -97,7 +97,7 @@ async function transcribeWithGoogle(filePath, options) {
         // Wait for the operation to complete
         console.log("Waiting for transcription to complete...");
         const [response] = await operation.promise();
-
+        console.log('response :>> ', JSON.stringify(response));
         // Extract and return transcription results
         const transcription = response.results
             .map(result => result.alternatives[0].transcript)
