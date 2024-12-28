@@ -5,9 +5,10 @@ import dotenv from "dotenv";
 import process from "node:process";
 import rateLimiter from "./middleware/rateLimiter.js";
 import apiKeyAuth from "./middleware/apiKeyAuth.js";
-import consoleAudioRoutes from "./routes/console-audio.js";
-import webAudioRoutes from "./routes/console-audio.js";
-import authRoutes from "./routes/auth.js";
+import consoleAudioRoutes from "./routes/console/console-audio.js";
+import webAudioRoutes from "./routes/console/console-audio.js";
+import authRoutes from "./routes/auth/auth.js";
+import userRoutes from "./routes/user/user.js";
 
 dotenv.config();
 const app = express();
@@ -24,6 +25,7 @@ app.use(morgan("combined"));
 // File Splitting Endpoint
 app.use('/v1/web/auth', authRoutes);
 app.use("/v1/web/audio", webAudioRoutes);
+app.use("/v1/console/user", apiKeyAuth, userRoutes);
 app.use("/v1/console/audio", apiKeyAuth, consoleAudioRoutes);
 
 const PORT = process.env.PORT || 3000;

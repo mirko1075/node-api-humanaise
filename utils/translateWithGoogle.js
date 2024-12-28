@@ -4,8 +4,9 @@ const googleTranslate = new TranslateV2.Translate();
 
 export const translateWithGoogle = async (text, targetLanguage) => {
     try {
-        const [translation] = await googleTranslate.translate(text, targetLanguage);
-        return translation;
+        const response = await googleTranslate.translate(text, targetLanguage);
+        const [translation] = response;
+        return {translation};
     } catch (error) {
         console.error('Error with Google Translate:', error);
         throw new Error('Google Translate failed.');

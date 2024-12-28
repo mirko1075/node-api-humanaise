@@ -23,8 +23,10 @@ export const translateWithWhisper = async (text, language) => {
               'Content-Type': 'application/json',
           },
       });
-      console.log('response.data :>> ', response.data);
-      return response.data.choices[0].message.content.trim();
+      return { 
+        usage: response.data.usage, 
+        text: response.data.choices[0].message.content.trim() 
+    };
   } catch (error) {
       console.error('Error with GPT translation:', error);
       throw new Error('GPT translation failed.');

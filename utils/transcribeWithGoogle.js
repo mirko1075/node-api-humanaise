@@ -13,7 +13,7 @@ if (!fs.existsSync(credentialsPath)) {
 } else {
   console.log('Success: File exists and is accessible.');
 }
-const transcribeWithGoogle1Minute = async (filePath, options = { translate: false, language: "en" }) => {
+const transcribeWithGoogle1Minute = async (filePath, options = { language: "en" }) => {
     try {
         if (!fs.existsSync(filePath)) {
             throw new Error(`File not found: ${filePath}`);
@@ -24,12 +24,11 @@ const transcribeWithGoogle1Minute = async (filePath, options = { translate: fals
         const audio = {
             content: audioBytes,
         };
-        const {translate, language} = options;
+        const {language} = options;
         const config = {
             encoding: "LINEAR16",
             sampleRateHertz: 16000,
             languageCode: language, // Default language code
-            translate: translate,
             punctuation: true,
         };
         // Speech-to-Text request
@@ -44,10 +43,6 @@ const transcribeWithGoogle1Minute = async (filePath, options = { translate: fals
             .map((result) => result.alternatives[0].transcript)
             .join("\n");
 
-        if (options.translate) {
-            const translatedText = await translateText(transcription, options.language);
-            return { transcription, translation: translatedText };
-        }
         console.log('transcription:', transcription);
         return { transcription };
 

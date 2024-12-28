@@ -1,3 +1,4 @@
+import ffprobe from 'ffprobe-static';
 import ffmpeg from 'fluent-ffmpeg';
 
 /**
@@ -5,17 +6,16 @@ import ffmpeg from 'fluent-ffmpeg';
  * @param {string} filePath - Path to the audio file.
  * @returns {Promise<number>} - Duration in seconds.
  */
-export function getAudioDuration(filePath) {
+export const getAudioDuration = (filePath) => {
     return new Promise((resolve, reject) => {
-        ffmpeg.ffprobe(filePath, (err, metadata) => {
-            if (err) {
-                return reject(err);
-            }
-            const duration = metadata.format.duration; // Duration in seconds
-            resolve(duration);
-        });
+        ffmpeg(filePath)
+            .setFfprobePath(ffprobe.path)
+            .ffprobe((err, metadata) => {
+                if (err) return reject(err);
+                const duration = metadata.format.duration; // Duration in seconds
+                resolve(duration);
+            });
     });
-}
-
+};
 
 export default getAudioDuration;
