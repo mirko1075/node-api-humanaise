@@ -211,7 +211,7 @@ router.post('/split-transcribe', upload.single('file'), async (req, res) => {
     // Log the usage to the database
     await logUsage({
       organization_id,
-      service: 'Transcribe',
+      service: 'Transcription',
       audio_duration: durationSeconds,
       cost: totalCost
     })
@@ -279,10 +279,10 @@ router.post('/transcribe', upload.single('file'), async (req, res) => {
       whisperTranscription
     }
     if (doubleModel) {
-      const googleResult = await transcribeWithGoogle(inputPath, targetLanguage)
+      const googleResult = await transcribeWithGoogle(inputPath, {language:targetLanguage, translate: false})
       totalMinutes += durationSeconds
       totalCost += await calculateCost({
-        service: 'Transcribe',
+        service: 'Transcription',
         provider: 'Google',
         duration: durationSeconds
       })
@@ -295,7 +295,7 @@ router.post('/transcribe', upload.single('file'), async (req, res) => {
     // Log the usage to the database
     await logUsage({
       organization_id,
-      service: 'Transcribe',
+      service: 'Transcription',
       audio_duration: totalMinutes,
       cost: totalCost
     })
@@ -425,7 +425,7 @@ router.post('/detect-language', upload.single('file'), async (req, res) => {
     });
     await logUsage({
         organization_id,
-        service: 'Transcribe',
+        service: 'Transcription',
         audio_duration: durationSeconds / 60,
         cost: totalCost || 0,
         created_at: new Date().getTime(),

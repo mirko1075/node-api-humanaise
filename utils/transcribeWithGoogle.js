@@ -78,12 +78,15 @@ async function transcribeWithGoogle(filePath, options) {
             config: {
                 encoding: 'LINEAR16',
                 sampleRateHertz: 16000,
-                languageCode: language, // Replace with your desired language code
-                translate: translate,
                 punctuation: true,
             },
         };
-
+        if (translate) {
+            request.config.enableWordTimeOffsets = true;
+        }
+        if (language){
+            request.config.languageCode = language;
+        }
         // Call LongRunningRecognize
         console.log("Calling LongRunningRecognize...");
         const [operation] = await speechClient.longRunningRecognize(request);
