@@ -5,3 +5,4 @@ uploads/*
 package-lock.json
 converted/*
 google-credentials.json
+transcription-app-user_accessKeys.csv
