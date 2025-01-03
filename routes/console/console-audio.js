@@ -1,12 +1,15 @@
 import express from 'express'
 import multer from 'multer'
 import { exec } from 'child_process'
+import axios from 'axios';
 import fs from 'fs'
 import path from 'path'
 import transcribeWithWhisper from '../../utils/transcribe-whisper.js'
 import convertToWav from '../../utils/convertToWav.js'
-import detectLanguage from '../../utils/detectLanguage.js'
+import detectLanguage, { validateWavFile } from '../../utils/detectLanguage.js'
 import archiver from 'archiver'
+import ffmpeg from 'fluent-ffmpeg';
+import ffprobe from 'ffprobe-static';
 import {
   transcribeWithGoogle,
   transcribeWithGoogle1Minute
@@ -17,530 +20,855 @@ import { translateWithGoogle } from '../../utils/translateWithGoogle.js'
 import knex from '../../db/knex.js'
 import { calculateCost } from '../../db/calculateCost.js'
 import { logUsage } from '../../middleware/logUsage.js'
+import multerS3 from 'multer-s3';
+import {uploadFileToS3, s3Client} from '../../utils/aws.js';
+import logger from '../../utils/logger.js';
+import process from 'node:process'
 
 const router = express.Router()
-const upload = multer({ dest: 'uploads/' })
 
-// Route: Split Audio
-router.post('/split-audio', upload.single('file'), async (req, res) => {
-  const inputPath = req.file.path
-  const outputDir = `output/${Date.now()}`
-  const duration = req.body.duration || 30
-  const organization_id = req.body.organization_id || 1 // Define organization_id
-  const user_id = req.body.user_id || 1 // Define user_id
-  let durationSeconds = await getAudioDuration(inputPath)
+const upload = multer({
+  storage: multerS3({
+    s3: s3Client,
+    bucket: process.env.AWS_S3_BUCKET,
+    key: (req, file, cb) => {
+      cb(null, `uploads/${Date.now()}_${file.originalname}`);
+    },
+  }),
+});
+
+
+router.post('/upload', upload.single('file'), async (req, res) => {
+  const { originalname } = req.file;
+  const filePath = req.file.location; // File location on S3
+  const organizationId = req.body.organization_id;
+  const userId = req.body.user_id;
+
   try {
-    // Create output directory
-    fs.mkdirSync(outputDir, { recursive: true })
+    const [fileId] = await knex('files').insert({
+      name: originalname,
+      path: filePath,
+      organization_id: organizationId,
+      user_id: userId,
+      status: 'pending',
+    }).returning('id');
+
+    logger.info(`File uploaded successfully: ${originalname}`); // Log success
+    res.status(201).json({ fileId, filePath });
+  } catch (err) {
+    logger.error('Error saving file metadata:', err); // Log error
+    res.status(500).send('Failed to save file metadata');
+  }
+});
+
+
+router.put('/files/:id/status', async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!status) {
+    return res.status(400).send('Status is required');
+  }
+
+  try {
+    await knex('files').where({ id }).update({ status });
+    logger.info(`Status updated for file ID ${id}: ${status}`); // Log success
+    res.status(200).send('Status updated successfully');
+  } catch (err) {
+    logger.error('Error updating status:', err); // Log error
+    res.status(500).send('Failed to update status');
+  }
+});
+
+router.get('/files', async (req, res) => {
+  const { page = 1, limit = 10 } = req.query; // Add pagination
+
+  try {
+    const files = await knex('files')
+      .select('*')
+      .limit(limit)
+      .offset((page - 1) * limit);
+
+    logger.info(`Fetched ${files.length} files`); // Log success
+    res.status(200).json(files);
+  } catch (err) {
+    logger.error('Error fetching files:', err); // Log error
+    res.status(500).send('Failed to fetch files');
+  }
+});
+
+router.post('/split-audio', upload.single('file'), async (req, res) => {
+  const { duration = 30, organization_id = 1, user_id = 1 } = req.body;
+
+  if (!req.file) {
+    return res.status(400).send({ error: 'No file uploaded' });
+  }
+
+  const s3FileUrl = req.file.location; // Get the file's S3 URL from multer-s3
+  const inputPath = `temp-${Date.now()}.wav`;
+  const outputDir = `output-${Date.now()}`;
+  const zipPath = `${outputDir}.zip`;
+
+  try {
+    // Download the file from S3
+    const response = await axios({ url: s3FileUrl, method: 'GET', responseType: 'stream' });
+    const writer = fs.createWriteStream(inputPath);
+    response.data.pipe(writer);
+
+    // Wait for the file to finish writing
+    await new Promise((resolve, reject) => {
+      writer.on('finish', resolve); // Call resolve when the file is fully written
+      writer.on('error', reject);   // Call reject if an error occurs
+    });
+
+    // Check and convert to WAV if necessary
+    let wavPath = inputPath;
+    if (!inputPath.endsWith('.wav')) {
+      wavPath = `${inputPath}.wav`;
+      await convertToWav(inputPath, wavPath);
+      fs.unlinkSync(inputPath); // Remove original file
+    }
+
+    // Get audio duration
+    const durationSeconds = await getAudioDuration(wavPath);
+
+    // Create output directory for split files
+    fs.mkdirSync(outputDir, { recursive: true });
 
     // FFmpeg command to split audio
-    const command = `ffmpeg -i ${inputPath} -f segment -segment_time ${duration} -c copy ${outputDir}/output%03d.wav`
-
+    const command = `ffmpeg -i "${wavPath}" -f segment -segment_time ${duration} -c copy "${outputDir}/output%03d.wav"`;
     await new Promise((resolve, reject) => {
-      exec(command, (error) => {
-        if (error) return reject(error)
-        resolve()
-      })
-    })
+      exec(command, (error) => (error ? reject(error) : resolve()));
+    });
 
-    // Create a zip file
-    const zipPath = `${outputDir}.zip`
-    const archive = archiver('zip', { zlib: { level: 9 } })
-    const output = fs.createWriteStream(zipPath)
+    // Create a ZIP file of the split audio files
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    const zipOutput = fs.createWriteStream(zipPath);
+    archive.pipe(zipOutput);
+    archive.directory(outputDir, false);
+    await archive.finalize();
 
-    archive.pipe(output)
-    archive.directory(outputDir, false)
-    archive.finalize()
+    // Upload the ZIP file to S3
+    const zipKey = `audio-splits/${path.basename(zipPath)}`;
+    const zipUrl = await uploadFileToS3({
+      bucketName: process.env.AWS_S3_BUCKET,
+      key: zipKey,
+      body: fs.createReadStream(zipPath),
+      contentType: 'application/zip',
+    });
 
-    output.on('close', async () => {
-      const absoluteZipPath = path.resolve(zipPath)
-      await knex('service_usage').insert({
-        organization_id,
-        user_id,
-        service: 'Audio Processing',
-        audio_duration: durationSeconds / 60, // Convert to minutes
-        timestamp: new Date()
-      })
-
-      res.sendFile(absoluteZipPath, (err) => {
-        if (err) {
-          console.error('Error sending file:', err)
-          return res.status(500).send('Error sending file.')
-        }
-
-        // Cleanup
-        fs.unlinkSync(absoluteZipPath)
-        fs.rmSync(outputDir, { recursive: true, force: true })
-        fs.rmSync(inputPath, { force: true })
-      })
-    })
-  } catch (error) {
-    console.error('Error processing request:', error)
-    res.status(500).send({ error: 'Failed to process audio file' })
-  }
-})
-
-// Route: Split and Transcribe
-router.post('/split-transcribe', upload.single('file'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).send('No file uploaded')
-  }
-  console.log('Called split and transcript')
-  let inputPath = req.file.path
-  const originalLanguage = req.body.language || 'en'
-  const doubleModel = req.body.doubleModel || false
-  const organization_id = req.body.organization_id || 1 // Define organization_id
-  const user_id = req.body.user_id || 1 // Define user_id
-  const outputDir = `output/${Date.now()}`
-  const duration = req.body.duration || 5000
-  let durationSeconds = await getAudioDuration(inputPath)
-
-  try {
-    let totalCost = 0
+    // Log service usage
     await knex('service_usage').insert({
       organization_id,
       user_id,
       service: 'Audio Processing',
       audio_duration: durationSeconds / 60, // Convert to minutes
-      created_at: new Date()
-    })
-    totalCost += await calculateCost({
-      service: 'Transcription',
-      provider: 'OpenAI',
-      duration: durationSeconds
-    })
-    // Check if input is already a WAV file
-    console.log('Input file info:', {
-      originalname: req.file.originalname,
-      mimetype: req.file.mimetype
-    })
+      created_at: new Date(),
+    });
+
+    // Cleanup local files
+    if (fs.existsSync(wavPath)) fs.unlinkSync(wavPath);
+
+
+    // Respond with the S3 URL of the ZIP file
+    res.status(201).json({ message: 'Audio split and zipped successfully', zipUrl });
+  } catch (error) {
+    console.error('Error processing audio:', error);
+    res.status(500).json({ error: 'Failed to process audio file' });
+  } finally {
+    // Cleanup
+    fs.rmSync(outputDir, { recursive: true, force: true });
+    if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+    if (fs.existsSync(outputDir)) fs.rmSync(outputDir, { recursive: true, force: true });
+    if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+  }
+});
+
+router.post('/split-transcribe', async (req, res) => {
+  const { fileUrl, language = 'en', doubleModel = false, duration = 5000, organization_id = 1, user_id = 1 } = req.body;
+
+  if (!fileUrl) {
+    return res.status(400).send('No file URL provided');
+  }
+
+  const outputDir = `output/${Date.now()}`;
+  let inputPath = fileUrl.split('/').pop();
+
+  try {
+    // Download the file from S3
+    const response = await axios({ url: fileUrl, method: 'GET', responseType: 'stream' });
+    const writer = fs.createWriteStream(inputPath);
+    response.data.pipe(writer);
+
+    // Wait for the file to finish writing
+    await new Promise((resolve, reject) => {
+      writer.on('finish', resolve); // Call resolve when the file is fully written
+      writer.on('error', reject);   // Call reject if an error occurs
+    });
+
+    // Validate the file format using FFmpeg
+    const fileInfo = await new Promise((resolve, reject) => {
+      ffmpeg.ffprobe(inputPath, { path: ffprobe.path }, (err, metadata) => {
+        if (err) return reject(err);
+        resolve(metadata);
+      });
+    });
+
+    // Check if the file is a valid audio file
+    if (!fileInfo.streams || fileInfo.streams.length === 0 || fileInfo.streams[0].codec_type !== 'audio') {
+      throw new Error('The file is not a valid audio file.');
+    }
+
+    // Log the file details
+    logger.info('File details:', {
+      format: fileInfo.format.format_name,
+      codec: fileInfo.streams[0].codec_name,
+      duration: fileInfo.streams[0].duration,
+    });
+
+    let durationSeconds = await getAudioDuration(inputPath);
+    let totalCost = 0;
+
+    // Log service usage
+    await knex('service_usage').insert({
+      organization_id,
+      user_id,
+      service: 'Audio Processing',
+      audio_duration: durationSeconds / 60, // Convert to minutes
+      created_at: new Date(),
+    });
+
+    // Convert to WAV if necessary
+    logger.info('Converting to WAV format...' + inputPath);
     if (!inputPath.endsWith('.wav')) {
-      console.log('Converting input file to WAV...')
-      const wavPath = `${inputPath}.wav`
-      await convertToWav(inputPath, wavPath)
+      const wavPath = `${inputPath}.wav`;
+      await convertToWav(inputPath, wavPath);
 
       if (!fs.existsSync(wavPath)) {
-        throw new Error('WAV conversion failed: Output file not created.')
+        throw new Error('WAV conversion failed: Output file not created.');
       }
 
-      fs.unlinkSync(inputPath) // Remove original file
-      inputPath = wavPath
+      fs.unlinkSync(inputPath); // Remove original file
+      inputPath = wavPath;
     }
+
+    // Validate the converted WAV file
+    const wavFileInfo = await new Promise((resolve, reject) => {
+      ffmpeg.ffprobe(inputPath, { path: ffprobe.path }, (err, metadata) => {
+        if (err) return reject(err);
+        resolve(metadata);
+      });
+    });
+
+    // Check if the file is a valid WAV file
+    if (
+      !wavFileInfo.streams ||
+      wavFileInfo.streams.length === 0 ||
+      wavFileInfo.streams[0].codec_type !== 'audio' ||
+      wavFileInfo.format.format_name !== 'wav'
+    ) {
+      throw new Error('The file is not a valid WAV file.');
+    }
+
+    // Log the WAV file details
+    logger.info('WAV file details:', {
+      format: wavFileInfo.format.format_name,
+      codec: wavFileInfo.streams[0].codec_name,
+      duration: wavFileInfo.streams[0].duration,
+    });
 
     // Create output directory
-    fs.mkdirSync(outputDir, { recursive: true })
-    console.log('Output directory created')
+    fs.mkdirSync(outputDir, { recursive: true });
+
     // FFmpeg command to split audio
-    const command = `ffmpeg -i "${inputPath}" -f segment -segment_time ${duration} -c copy ${outputDir}/output%03d.wav`
-    console.log('Calling command to split audio:', command)
+    const command = `ffmpeg -i "${inputPath}" -f segment -segment_time ${duration} -c copy ${outputDir}/output%03d.wav`;
     await new Promise((resolve, reject) => {
-      exec(command, (error) => {
-        if (error) return reject(error)
-        resolve()
-      })
-    })
+      exec(command, (error) => (error ? reject(error) : resolve()));
+    });
+
+    // Verify that split files were created
+    const files = fs.readdirSync(outputDir).filter((file) => file.endsWith('.wav'));
+
+    if (files.length === 0) {
+      throw new Error('No valid WAV files were created after splitting the audio.');
+    }
 
     // Transcribe each file
-    const files = fs
-      .readdirSync(outputDir)
-      .filter((file) => file.endsWith('.wav'))
-    const whisperTranscriptions = []
+    const whisperTranscriptions = [];
 
-    // Whisper transcription
     for (const file of files) {
-      const filePath = path.join(outputDir, file)
-      console.log('Transcribing file with Whisper:', filePath)
-      const transcription = await transcribeWithWhisper(
-        filePath,
-        originalLanguage
-      ) // No conversion here
-      whisperTranscriptions.push({ file: file, transcription })
-      console.log('Transcription with Whisper:', transcription)
+      const filePath = path.join(outputDir, file);
+      const transcription = await transcribeWithWhisper(filePath, language);
+      const textFilePath = filePath.replace(/\.wav$/, '.txt');
+      fs.writeFileSync(textFilePath, transcription);
+      whisperTranscriptions.push({ file, transcription });
     }
+
     totalCost += await calculateCost({
       service: 'Transcription',
       provider: 'OpenAI',
-      duration: durationSeconds
-    })
-    console.log('Whisper transcriptions:', whisperTranscriptions)
-    const whisperTranscription = whisperTranscriptions
-      .map((t) => t.transcription)
-      .join('\n')
+      duration: durationSeconds,
+    });
+    const whisperTranscription = whisperTranscriptions.map((t) => t.transcription).join('\n');
+
+    // Save the transcription as a .txt file
+    const txtFileName = `transcriptions/${path.basename(fileUrl, path.extname(fileUrl))}-whisper-transcription.txt`;
+    const txtFilePath = `temp-${Date.now()}.txt`;
+    fs.writeFileSync(txtFilePath, whisperTranscription);
+    // Upload the .txt file to S3
+    const whisperTxtFileUrl = await uploadFileToS3({
+      bucketName: process.env.AWS_S3_BUCKET,
+      key: txtFileName,
+      body: fs.createReadStream(txtFilePath),
+      contentType: 'text/plain',
+    });
+    fs.unlinkSync(txtFilePath);
+
     const responseObject = {
       message: 'Transcription completed successfully',
       whisperTranscriptions,
-      whisperTranscription
-    }
-
-    //Google transcription
+      whisperTranscription,
+      whisperTxtFileUrl
+    };
+    // Google transcription (if doubleModel is true)
     if (doubleModel) {
-      durationSeconds *= 2
+      const googleTranscriptions = [];
+      for (const file of files) {
+        const filePath = path.join(outputDir, file);
+        const googleTranscription = duration <= 60
+          ? await transcribeWithGoogle1Minute(filePath, { language, translate: false })
+          : await transcribeWithGoogle(filePath, { language, translate: false });
+        googleTranscriptions.push({ file, googleTranscription });
+      }
+
+      const googleTranscription = googleTranscriptions.map((t) => t.googleTranscription.transcription).join('\n');
+
+      // Save the transcription as a .txt file
+      const txtFileName = `transcriptions/${path.basename(fileUrl, path.extname(fileUrl))}-google-transcription.txt`;
+      const txtFilePath = `temp-${Date.now()}.txt`;
+      fs.writeFileSync(txtFilePath, googleTranscription);
+      // Upload the .txt file to S3
+      const googleTxtFileUrl = await uploadFileToS3({
+        bucketName: process.env.AWS_S3_BUCKET,
+        key: txtFileName,
+        body: fs.createReadStream(txtFilePath),
+        contentType: 'text/plain',
+      });
+      responseObject.googleTxtFileUrl = googleTxtFileUrl;
+      responseObject.googleTranscriptions = googleTranscriptions;
+      responseObject.googleTranscription = googleTranscription;
       totalCost += await calculateCost({
         service: 'Transcription',
         provider: 'Google',
-        duration: durationSeconds
-      })
-      const googleTranscriptions = []
-      for (const file of files) {
-        const filePath = path.join(outputDir, file)
-        console.log(`Audio duration: ${duration} seconds`)
-        let googleTranscription = ''
-        console.log('Transcribing file with Google:', filePath)
-        if (duration <= 60) {
-          googleTranscription = await transcribeWithGoogle1Minute(filePath, {
-            originalLanguage,
-            translate: false
-          }) // No conversion here
-        } else {
-          googleTranscription = await transcribeWithGoogle(filePath, {
-            originalLanguage,
-            translate: false
-          }) // No conversion here
-        }
-        googleTranscriptions.push({ file: file, googleTranscription })
-      }
-      console.log('Google transcriptions:', googleTranscriptions)
-      const googleTranscription = googleTranscriptions
-        .map((t) => t.googleTranscription.transcription)
-        .join('\n')
-      responseObject.googleTranscriptions = googleTranscriptions
-      responseObject.googleTranscription = googleTranscription
-
+        duration: durationSeconds,
+      });
     }
+    //Delete temp files
+    fs.unlinkSync(inputPath);
+    fs.unlinkSync(txtFilePath);
+    fs.rmSync(outputDir, { recursive: true, force: true });
 
     // Log the usage to the database
     await logUsage({
       organization_id,
       service: 'Transcribe',
       audio_duration: durationSeconds,
-      cost: totalCost
-    })
-    responseObject.totalMinutes = durationSeconds / 60
-    responseObject.totalCost = totalCost
-    // Return combined transcriptions
-    res.json({ ...responseObject })
+      cost: totalCost,
+    });
+
+    responseObject.totalMinutes = durationSeconds / 60;
+    responseObject.totalCost = totalCost;
+    logger.info(`Transcription completed successfully for file: ${fileUrl}`); // Log success
+    res.json(responseObject);
   } catch (error) {
-    console.error('Error processing request:', error)
-    res.status(500).send({ error: 'Failed to process audio file' })
+    logger.error('Error processing request:', error); // Log error
+    res.status(500).send({ error: 'Failed to process audio file' });
   } finally {
     // Cleanup
-    fs.rmSync(inputPath, { force: true })
-    fs.rmSync(outputDir, { recursive: true, force: true })
+    if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+    if (fs.existsSync(outputDir)) fs.rmSync(outputDir, { recursive: true, force: true });
   }
-})
+});
 
 // Route: Transcribe Audio
-router.post('/transcribe', upload.single('file'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).send('No file uploaded')
+router.post('/transcribe', async (req, res) => {
+  const { fileUrl, targetLanguage = 'en', language = 'en', doubleModel = false, organization_id = 1, user_id = 1 } = req.body;
+
+  if (!fileUrl) {
+    logger.error('fileUrl is required');
+    return res.status(400).send({ error: 'fileUrl is required' });
   }
-  let targetLanguage = req.body.targetLanguage || 'en'
-  let inputPath = req.file.path
-  const originalLanguage = req.body.language || 'en'
-  const doubleModel = req.body.doubleModel || false
-  const organization_id = req.body.organization_id || 1 // Define organization_id
-  const user_id = req.body.user_id || 1 // Define user_id
-  let durationSeconds = await getAudioDuration(inputPath)
+
+  let inputPath = fileUrl.split('/').pop();
 
   try {
-    let totalMinutes = 0
-    let totalCost = 0
+    // Download the file from S3
+    const response = await axios({ url: fileUrl, method: 'GET', responseType: 'stream' });
+    const writer = fs.createWriteStream(inputPath);
+    response.data.pipe(writer);
+    // Wait for the file to finish writing
+    await new Promise((resolve, reject) => {
+      writer.on('finish', resolve); // Call resolve when the file is fully written
+      writer.on('error', reject);   // Call reject if an error occurs
+    });
+    let durationSeconds = await getAudioDuration(inputPath);
+    let totalMinutes = 0;
+    let totalCost = 0;
 
-    // If the file is not a WAV file, convert it
+    // Convert to WAV if necessary
     if (!inputPath.endsWith('.wav')) {
-      const wavPath = `${inputPath}.wav`
-      await convertToWav(inputPath, wavPath)
-      fs.unlinkSync(inputPath) // Remove original file
-      inputPath = wavPath
-
-      await knex('service_usage').insert({
-        organization_id,
-        user_id,
-        service: 'Audio Processing',
-        audio_duration: durationSeconds / 60, // Convert to minutes
-        created_at: new Date()
-      })
+      const wavPath = `${inputPath}.wav`;
+      await convertToWav(inputPath, wavPath);
+      fs.unlinkSync(inputPath);
+      inputPath = wavPath;
     }
 
     // Transcribe the audio file
-    const whisperTranscription = await transcribeWithWhisper(
-      inputPath,
-      originalLanguage
-    )
-    totalMinutes += durationSeconds
+    const whisperTranscription = await transcribeWithWhisper(inputPath, language);
+    totalMinutes += durationSeconds;
     totalCost += await calculateCost({
       service: 'Transcription',
       provider: 'OpenAI',
-      duration: durationSeconds
-    })
+      duration: durationSeconds,
+    });
+
+    // Save the transcription as a .txt file
+    const txtFileName = `transcriptions/${path.basename(fileUrl, path.extname(fileUrl))}-whisper-transcription.txt`;
+    const txtFilePath = `temp-${Date.now()}.txt`;
+    fs.writeFileSync(txtFilePath, whisperTranscription);
+    // Upload the .txt file to S3
+    const whisperTxtFileUrl = await uploadFileToS3({
+      bucketName: process.env.AWS_S3_BUCKET,
+      key: txtFileName,
+      body: fs.createReadStream(txtFilePath),
+      contentType: 'text/plain',
+    });
 
     const responseObject = {
       message: 'Transcription successful',
-      whisperTranscription
-    }
+      whisperTranscription,
+      whisperTxtFileUrl
+    };
+
+    // Google transcription (if doubleModel is true)
     if (doubleModel) {
-      const googleResult = await transcribeWithGoogle(inputPath, targetLanguage)
-      totalMinutes += durationSeconds
+      const googleResult = await transcribeWithGoogle(inputPath, targetLanguage);
+      totalMinutes += durationSeconds;
       totalCost += await calculateCost({
         service: 'Transcribe',
         provider: 'Google',
-        duration: durationSeconds
-      })
-      responseObject.googleTranscript = googleResult.transcription
+        duration: durationSeconds,
+      });
+      // Save the transcription as a .txt file
+      const txtFileName = `transcriptions/${path.basename(fileUrl, path.extname(fileUrl))}-google-transcription.txt`;
+      const txtFilePath = `temp-${Date.now()}.txt`;
+      fs.writeFileSync(txtFilePath, googleResult.transcription);
+      // Upload the .txt file to S3
+      const googleTxtFileUrl = await uploadFileToS3({
+        bucketName: process.env.AWS_S3_BUCKET,
+        key: txtFileName,
+        body: fs.createReadStream(txtFilePath),
+        contentType: 'text/plain',
+      });
+
+      responseObject.googleTranscript = googleResult.transcription;
+      responseObject.googleTxtFileUrl = googleTxtFileUrl;
     }
-    responseObject.totalMinutes = totalMinutes
-    responseObject.totalCost = totalCost
-    // Cleanup
-    fs.unlinkSync(inputPath)
+
+    responseObject.totalMinutes = totalMinutes;
+    responseObject.totalCost = totalCost;
+
     // Log the usage to the database
     await logUsage({
       organization_id,
+      user_id,
       service: 'Transcribe',
       audio_duration: totalMinutes,
-      cost: totalCost
-    })
+      cost: totalCost,
+    });
 
-    res.json(responseObject)
+    logger.info(`Transcription completed successfully for file: ${fileUrl}`); // Log success
+    res.json(responseObject);
   } catch (error) {
-    console.error('Error processing request:', error)
-    res.status(500).send({ error: 'Failed to transcribe audio file' })
+    logger.error('Error processing request:', error); // Log error
+    res.status(500).send({ error: 'Failed to transcribe audio file' });
+  } finally {
+    // Cleanup
+    if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
   }
-})
+});
 
-router.post('/translate', async (req, res) => {
-  const targetLanguage = req.body.targetLanguage || 'en'
-  const { text, language, isMultiModel } = req.body
-  const organization_id = req.body.organization_id || 1 // Define organization_id
-  // Validate input
-  if (!text || !language) {
-    return res
-      .status(400)
-      .json({ error: 'Text and language are required.' })
+router.post('/translate-audio', async (req, res) => {
+  const { fileUrl, language, targetLanguage = 'en', isMultiModel = false, organization_id = 1 } = req.body;
+
+  if (!fileUrl || !targetLanguage) {
+    return res.status(400).json({ error: 'fileUrl and targetLanguage are required.' });
   }
+
+  const inputPath = `temp-${Date.now()}.wav`;
 
   try {
-    let translations = {}
-    let googleResult = {}
-    let totalTokens = 0
-    let totalCost = 0
-    // Perform Whisper translation
-    // Use Whisper for translation
-    const whisperResult = await translateWithWhisper(text, language)
-    console.log('whisperResult :>> ', whisperResult);
+    // Download the file from S3
+    const response = await axios({ url: fileUrl, method: 'GET', responseType: 'stream' });
+    const writer = fs.createWriteStream(inputPath);
+    response.data.pipe(writer);
+    await new Promise((resolve, reject) => {
+      writer.on('finish', resolve); // Call resolve when the file is fully written
+      writer.on('error', reject);   // Call reject if an error occurs
+    });
+    // Transcribe the audio file
+    const transcription = await transcribeWithWhisper(inputPath, language);
+
+    let translations = {};
+    let totalTokens = 0;
+    let totalCost = 0;
+
+    // Whisper translation
+    const whisperResult = await translateWithWhisper(transcription, language);
     translations.whisper = whisperResult.text;
-    totalTokens += whisperResult.usage.total_tokens || 0
+    totalTokens += whisperResult.usage.total_tokens || 0;
     totalCost += await calculateCost({
       service: 'Translation',
       provider: 'OpenAI',
-      tokens: whisperResult.usage.total_tokens || 0
-    })
+      tokens: whisperResult.usage.total_tokens || 0,
+    });
 
-    // Use Google Translate if isMultiModel is true
+    // Google translation (if isMultiModel is true)
     if (isMultiModel) {
-      googleResult = await translateWithGoogle(text, targetLanguage)
-      translations.google = googleResult.translation
-      totalTokens += googleResult.tokens || 0
+      const googleResult = await translateWithGoogle(transcription, targetLanguage);
+      translations.google = googleResult.translation;
+      totalTokens += googleResult.tokens || 0;
       totalCost += await calculateCost({
         service: 'Translation',
         provider: 'Google',
-        tokens: googleResult.tokens || 0
-      })
+        tokens: googleResult.tokens || 0,
+      });
     }
 
     // Log the usage to the database
     await logUsage({
       organization_id,
       service: 'Translation',
-      tokens_used: totalTokens || 0,
-      cost: totalCost || 0
-    })
+      tokens_used: totalTokens,
+      cost: totalCost,
+    });
 
+    logger.info(`Translation completed successfully for file: ${fileUrl}`); // Log success
     res.status(200).json({
       message: 'Translation successful',
       translations,
       totalTokens,
-      totalCost
-    })
-
+      totalCost,
+    });
   } catch (error) {
-    console.error('Error during translation:', error)
-    res.status(500).json({ error: 'Failed to translate the text.' })
+    logger.error('Error during translation:', error); // Log error
+    res.status(500).json({ error: 'Failed to translate the text.' });
+  } finally {
+    // Cleanup
+    if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
   }
-})
+});
 
-router.post('/detect-language', upload.single('file'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).send('No file uploaded');
+router.post('/translate-text', async (req, res) => {
+  const { fileUrl, targetLanguage = 'en', isMultiModel = false, organization_id = 1 } = req.body;
+
+  if (!fileUrl || !targetLanguage) {
+    return res.status(400).json({ error: 'fileUrl and targetLanguage are required.' });
   }
-  const organization_id = req.body.organization_id || 1; // Define organization_id
-  let inputPath = req.file.path;
-  let totalCost = 0;
-  let durationSeconds = await getAudioDuration(inputPath)
+
+  const tempFilePath = `temp-${Date.now()}.txt`;
 
   try {
-    console.log('Input path for language detection:', inputPath)
-    console.log('Input file info:', {
-      originalname: req.file.originalname,
-      mimetype: req.file.mimetype
-    })
-    if (!inputPath.endsWith('.wav')) {
-      console.log('Converting input file to WAV...')
-      const wavPath = `${inputPath}.wav`
-      await convertToWav(inputPath, wavPath)
+    // Download the .txt file from S3
+    const response = await axios({ url: fileUrl, method: 'GET', responseType: 'stream' });
+    const writer = fs.createWriteStream(tempFilePath);
+    response.data.pipe(writer);
 
-      if (!fs.existsSync(wavPath)) {
-        throw new Error('WAV conversion failed: Output file not created.')
-      }
-
-      fs.unlinkSync(inputPath) // Remove original file
-      inputPath = wavPath
-    }
-
-    const snippetPath = `${inputPath}_snippet.wav`
-    console.log('Extracting 30-second snippet for language detection...')
-    const command = `ffmpeg -i "${inputPath}" -t 100 -c copy "${snippetPath}"`
-    
+    // Wait for the file to finish writing
     await new Promise((resolve, reject) => {
-      exec(command, (error, stdout, stderr) => {
-        if (error) {
-          console.error('Error extracting snippet:', stderr)
-          return reject(error)
-        }
-        console.log('Snippet extracted:', stdout)
-        resolve()
-      })
-    })
+      writer.on('finish', resolve); // Call resolve when the file is fully written
+      writer.on('error', reject);   // Call reject if an error occurs
+    });
 
-    if (!fs.existsSync(snippetPath)) {
-      throw new Error('Snippet extraction failed: Output file not created.')
+    // Read the content of the .txt file
+    const text = fs.readFileSync(tempFilePath, 'utf-8');
+
+    let translations = {};
+    let totalTokens = 0;
+    let totalCost = 0;
+
+    // Perform Whisper translation
+    const whisperResult = await translateWithWhisper(text, targetLanguage);
+    translations.whisper = whisperResult.text;
+    totalTokens += whisperResult.usage.total_tokens || 0;
+    totalCost += await calculateCost({
+      service: 'Translation',
+      provider: 'OpenAI',
+      tokens: whisperResult.usage.total_tokens || 0,
+    });
+    // Save the transcription as a .txt file
+    const txtFileName = `translations/${path.basename(fileUrl, path.extname(fileUrl))}-whisper-translation.txt`;
+    const txtFilePath = `temp-${Date.now()}.txt`;
+    fs.writeFileSync(txtFilePath, whisperResult.text);
+    // Upload the .txt file to S3
+    const whisperTxtFileUrl = await uploadFileToS3({
+      bucketName: process.env.AWS_S3_BUCKET,
+      key: txtFileName,
+      body: fs.createReadStream(txtFilePath),
+      contentType: 'text/plain',
+    });
+    // Use Google Translate if isMultiModel is true
+    const responseObject = {
+      message: 'Translation successful',
+      translations,
+      totalTokens,
+      totalCost,
+      whisperTxtFileUrl
+    }
+    if (isMultiModel) {
+      const googleResult = await translateWithGoogle(text, targetLanguage);
+      translations.google = googleResult.translation;
+      totalTokens += googleResult.tokens || 0;
+      totalCost += await calculateCost({
+        service: 'Translation',
+        provider: 'Google',
+        tokens: googleResult.tokens || 0,
+      });
+      // Save the transcription as a .txt file
+      const txtFileName = `translations/${path.basename(fileUrl, path.extname(fileUrl))}-google-translation.txt`;
+      const txtFilePath = `temp-${Date.now()}.txt`;
+      fs.writeFileSync(txtFilePath, googleResult.translation);
+      // Upload the .txt file to S3
+      const googleTxtFileUrl = await uploadFileToS3({
+        bucketName: process.env.AWS_S3_BUCKET,
+        key: txtFileName,
+        body: fs.createReadStream(txtFilePath),
+        contentType: 'text/plain',
+      });
+      responseObject.googleTxtFileUrl = googleTxtFileUrl;
     }
 
-    const { detectedLanguage, languageConfidence, languageCode } =
-      await detectLanguage(snippetPath)
-    
-    totalCost += await calculateCost({
-        service: 'Detect Language',
-        provider: 'Deepgram',
-        duration: durationSeconds / 60,
-    });
+    // Log the usage to the database
     await logUsage({
-        organization_id,
-        service: 'Transcribe',
-        audio_duration: durationSeconds / 60,
-        cost: totalCost || 0,
-        created_at: new Date().getTime(),
-
+      organization_id,
+      service: 'Translation',
+      tokens_used: totalTokens,
+      cost: totalCost,
     });
 
+    logger.info(`Translation completed successfully for file: ${fileUrl}`); // Log success
+    res.status(200).json(responseObject);
+  } catch (error) {
+    logger.error('Error during translation:', error); // Log error
+    res.status(500).json({ error: 'Failed to translate the text.' });
+  } finally {
     // Cleanup
-    fs.unlinkSync(inputPath)
-    fs.unlinkSync(snippetPath)
+    if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+  }
+});
+
+router.post('/detect-language', async (req, res) => {
+  const { fileUrl, organization_id = 1 } = req.body;
+
+  if (!fileUrl) {
+    logger.error('fileUrl is required');
+    return res.status(400).send('fileUrl is required');
+  }
+
+  let inputPath = `temp-${Date.now()}.wav`;
+  let snippetPath = `${inputPath}_snippet.wav`;
+
+  try {
+    // Download the file from S3
+    const response = await axios({ url: fileUrl, method: 'GET', responseType: 'stream' });
+    const writer = fs.createWriteStream(inputPath);
+    response.data.pipe(writer);
+    await new Promise((resolve, reject) => {
+      writer.on('finish', resolve);
+      writer.on('error', reject);
+    });
+    logger.info(`File downloaded successfully: ${inputPath}`);
+
+    let totalCost = 0;
+    let durationSeconds = await getAudioDuration(inputPath);
+    logger.info(`Audio duration: ${durationSeconds} seconds`);
+
+    // Convert to WAV if necessary
+    if (!inputPath.endsWith('.wav')) {
+      const wavPath = `${inputPath}.wav`;
+      await convertToWav(inputPath, wavPath);
+      fs.unlinkSync(inputPath);
+      inputPath = wavPath;
+      logger.info(`File converted to WAV: ${inputPath}`);
+    }
+
+    // Extract a 30-second snippet for language detection
+    if (durationSeconds < 30) {
+      logger.warn('Audio file is shorter than 30 seconds. Using the full file for language detection.');
+      snippetPath = inputPath; // Use the full file instead of extracting a snippet
+    } else {
+      const command = `ffmpeg -i "${inputPath}" -t 30 -ac 1 -ar 16000 "${snippetPath}"`;
+      await new Promise((resolve, reject) => exec(command, (error) => (error ? reject(error) : resolve())));
+      logger.info(`30-second snippet extracted: ${snippetPath}`);
+      logger.info(`Snippet file size: ${fs.statSync(snippetPath).size} bytes`);
+    }
+
+    // Validate the WAV file
+    validateWavFile(snippetPath);
+
+    // Detect language using Deepgram
+    const { detectedLanguage, languageConfidence } = await detectLanguage(snippetPath);
+
+    totalCost += await calculateCost({
+      service: 'Detect Language',
+      provider: 'Deepgram',
+      duration: durationSeconds / 60,
+    });
+
+    // Log the usage to the database
+    await logUsage({
+      organization_id,
+      service: 'Transcribe',
+      audio_duration: durationSeconds / 60,
+      cost: totalCost,
+    });
+
+    logger.info(`Language detected successfully for file: ${fileUrl}`);
     res.json({
       message: 'Language detected successfully',
       language: detectedLanguage,
-      languageCode: languageCode,
-      confidence: languageConfidence
-    })
+      confidence: languageConfidence,
+      totalCost,
+    });
+    
   } catch (error) {
-    console.error('Error detecting language:', error)
+    logger.error('Error detecting language:', error);
     res.status(500).send({
       error: 'Failed to detect language',
-      message: error,
+      message: error.message,
       language: undefined,
       languageCode: undefined,
-      confidence: undefined
-    })
+      confidence: undefined,
+    });
+  } finally {
+    // Cleanup
+    if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+    if (fs.existsSync(snippetPath) && snippetPath !== inputPath) fs.unlinkSync(snippetPath);
   }
-})
+});
 
 // Route: Convert File to WAV
-router.post('/convert-to-wav', upload.single('file'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' })
+router.post('/convert-to-wav', async (req, res) => {
+  const { fileUrl, bucketName = process.env.AWS_S3_BUCKET, organization_id = 1, user_id = 1 } = req.body;
+
+  if (!fileUrl) {
+    return res.status(400).json({ error: "File URL is required." });
   }
-  const organization_id = req.body.organization_id || 1 // Define organization_id
-  const user_id = req.body.user_id || 1 // Define user_id
-  const durationSeconds = await getAudioDuration(req.file.path) 
-  const inputPath = req.file.path
-  const outputPath = `${inputPath}.wav`
+
+  const tempInputPath = `temp-${Date.now()}-${path.basename(fileUrl)}`; // Temporary input file path
+  const tempOutputPath = tempInputPath.replace(path.extname(fileUrl), ".wav"); // Temporary output file path
 
   try {
-    // Convert to WAV
+    // Download the file from S3
+    const response = await axios({ url: fileUrl, method: 'GET', responseType: 'stream' });
+    const writer = fs.createWriteStream(tempInputPath);
+    response.data.pipe(writer);
+    await new Promise((resolve, reject) => {
+      writer.on('finish', resolve); // Call resolve when the file is fully written
+      writer.on('error', reject);   // Call reject if an error occurs
+    });
+    // Get the duration of the audio file
+    const durationSeconds = await getAudioDuration(tempInputPath);
 
-    await convertToWav(inputPath, outputPath)
+    // Convert the file to WAV
+    await convertToWav(tempInputPath, tempOutputPath);
+
+    // Calculate the cost of the conversion
     const totalCost = await calculateCost({
       provider: 'Internal',
       service: 'Audio Processing',
-      duration: durationSeconds
-    })
+      duration: durationSeconds,
+    });
+
+    // Log the service usage to the database
     await knex('service_usage').insert({
       organization_id,
       user_id,
       service: 'Audio Processing',
       audio_duration: durationSeconds / 60, // Convert to minutes
-      created_at: new Date()
-    })
-    // Read the converted file data
-    const fileData = fs.readFileSync(outputPath)
-    const fileName = path.basename(outputPath)
+      created_at: new Date(),
+    });
 
-    // Log the response to debug
-    const response = {
-      name: fileName,
-      data: fileData.toString('base64'), // Base64 encode the binary data
-      totalCost,
-    }
+    // Upload the converted WAV file to S3
+    const wavKey = `converted/${path.basename(fileUrl).replace(path.extname(fileUrl), ".wav")}`; // Same name but with .wav extension
+    const wavUrl = await uploadFileToS3({
+      bucketName,
+      key: wavKey,
+      body: fs.createReadStream(tempOutputPath),
+      contentType: "audio/wav",
+    });
+    logger.info(`File converted successfully: ${wavUrl}`); // Log success
+    // Cleanup local files
+    fs.unlinkSync(tempInputPath);
+    fs.unlinkSync(tempOutputPath);
 
-    // Cleanup temporary files
-    fs.unlinkSync(inputPath) // Original uploaded file
-    fs.unlinkSync(outputPath) // Converted file
-
-    // Set explicit JSON response type
-    res.setHeader('Content-Type', 'application/json')
-    res.json(response)
+    // Return the S3 URL of the uploaded WAV file
+    res.status(201).json({ message: "File converted successfully", wavUrl, totalCost, durationSeconds });
   } catch (error) {
-    console.error('Error processing request:', error)
-    res.status(500).json({ error: 'Failed to convert audio file' })
+    console.error('Error processing request:', error);
+    res.status(500).json({ error: 'Failed to convert audio file' });
+  } finally {
+    // Ensure cleanup even if an error occurs
+    if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath);
+    if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath);
   }
-})
+});
 
-router.post('/create-text-file', (req, res) => {
-  const __dirname = path.resolve()
-  const textString = req.body.text // Assuming the text is sent in the request body
-  const fileName = req.body.fileName || 'file' // Default file name
-  const nowDate = new Date()
-  const day = nowDate.getDate()
-  const month = nowDate.getMonth() + 1 // Months are zero-based
-  const year = nowDate.getFullYear()
-  const timestamp = nowDate.getTime()
-  const dirname = `${__dirname}/output/${year}-${month}-${day}/`
-  const textFileName = `${fileName}-${timestamp}.txt`
-  const organization_id = req.body.organization_id || 1 // Define organization_id
-  const user_id = req.body.user_id || 1 // Define user_id
+router.post('/create-text-file', async (req, res) => {
+  const { text, folder = 'text-files', fileName = 'file', organization_id = 1, user_id = 1 } = req.body;
 
-  if (!textString) {
-    return res.status(400).json({ error: 'Missing text content' })
+  if (!text) {
+    return res.status(400).json({ error: 'Missing text content' });
   }
 
-  // Ensure the directory exists
-  fs.mkdirSync(dirname, { recursive: true })
+  const timestamp = Date.now();
+  const textFileName = `${fileName}-${timestamp}.txt`; // Generate a unique file name
+  const tempFilePath = `temp-${textFileName}`; // Temporary local file path
 
-  // Write the text string to a file
-  fs.writeFileSync(dirname + textFileName, textString)
+  try {
+    // Write the text string to a temporary file
+    fs.writeFileSync(tempFilePath, text);
 
-  // Set the appropriate headers for file download
-  res.setHeader('Content-Disposition', `attachment; filename="${textFileName}"`)
-  res.setHeader('Content-Type', 'text/plain')
-  knex('service_usage').insert({
-    organization_id,
-    user_id,
-    service: 'File processing',
-    audio_duration: 0,// Convert to minutes
-    created_at: new Date()
-  })
-  // Send the file as the response
-  console.log('Sending file:', dirname + textFileName)
-  res.sendFile(dirname + textFileName)
-})
+    // Upload the text file to S3
+    const s3Key = `${folder}/${textFileName}`; // Folder and file name in S3
+    const s3Url = await uploadFileToS3({
+      bucketName: process.env.AWS_S3_BUCKET,
+      key: s3Key,
+      body: fs.createReadStream(tempFilePath),
+      contentType: 'text/plain',
+    });
+
+    // Log the service usage to the database
+    await knex('service_usage').insert({
+      organization_id,
+      user_id,
+      service: 'File Processing',
+      audio_duration: 0, // No audio duration for text files
+      created_at: new Date(),
+    });
+
+    // Cleanup the temporary file
+    fs.unlinkSync(tempFilePath);
+    logger.info(`Text file created and uploaded successfully: ${s3Url}`); // Log success
+    // Return the S3 URL of the uploaded text file
+    res.status(201).json({ message: 'Text file created and uploaded successfully', s3Url });
+  } catch (error) {
+    console.error('Error processing request:', error);
+    res.status(500).json({ error: 'Failed to create and upload text file' });
+  } finally {
+    // Ensure cleanup even if an error occurs
+    if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+  }
+});
 
 export default router

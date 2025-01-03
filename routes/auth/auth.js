@@ -136,4 +136,8 @@ router.post('/verify-token', (req, res) => {
   }
 })
 
+router.post('user', (req, res) => {
+  res.status(200).json({ message: 'User route is working.' })
+})
+
 export default router

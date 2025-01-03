@@ -7,8 +7,9 @@ export async function up(knex) {
     table.increments('id').primary();
     table.string('name').notNullable();
     table.string('path').notNullable();
-    table.integer('service_id').unsigned().references('id').inTable('services').onDelete('CASCADE');
-    table.string('status').defaultTo('pending');
+    table.string('status').defaultTo('pending'); // e.g., 'pending', 'processed'
+    table.integer('organization_id').unsigned().references('id').inTable('organizations').onDelete('CASCADE');
+    table.integer('user_id').unsigned().references('id').inTable('users').onDelete('CASCADE');
     table.timestamps(true, true);
   });
 }

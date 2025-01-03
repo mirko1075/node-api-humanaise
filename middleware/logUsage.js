@@ -9,10 +9,11 @@ import knex from '../db/knex.js';
  * @param {number} usage.audio_duration - Audio duration in seconds (optional).
  * @param {number} usage.cost - Calculated cost.
  */
-export async function logUsage({ organization_id, service, tokens_used = 0, audio_duration = 0, cost }) {
+export async function logUsage({ organization_id, user_id, service, tokens_used = 0, audio_duration = 0, cost }) {
   try {
     await knex('service_usage').insert({
       organization_id,
+      user_id,
       service,
       tokens_used,
       audio_duration,

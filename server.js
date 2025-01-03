@@ -9,6 +9,8 @@ import consoleAudioRoutes from "./routes/console/console-audio.js";
 import webAudioRoutes from "./routes/console/console-audio.js";
 import authRoutes from "./routes/auth/auth.js";
 import userRoutes from "./routes/user/user.js";
+import { errorHandler } from "./middleware/errorHandler.js";
+import logger from "./utils/logger.js";
 
 dotenv.config();
 const app = express();
@@ -18,15 +20,18 @@ app.set("trust proxy", 1);
 
 // Security Features
 app.use(rateLimiter);
-app.use(express.json()); 
-app.use(cors({ origin: ["https://www.make.com"], methods: ["POST", "GET"] }));
+app.use(express.json());
+app.use(cors({ origin: ["https://www.make.com", "http://localhost:3001"], methods: ['GET', 'POST', 'PUT', 'DELETE'] }));
 app.use(morgan("combined"));
 
 // File Splitting Endpoint
-app.use('/v1/web/auth', authRoutes);
-app.use("/v1/web/audio", webAudioRoutes);
-app.use("/v1/console/user", apiKeyAuth, userRoutes);
-app.use("/v1/console/audio", apiKeyAuth, consoleAudioRoutes);
+app.use('/api/v1/web/auth', authRoutes);
+app.use("/api/v1/web/audio", webAudioRoutes);
+app.use("/api/v1/console/user", apiKeyAuth, userRoutes);
+app.use("/api/v1/console/audio", apiKeyAuth, consoleAudioRoutes);
+
+// Global error handler
+app.use(errorHandler);
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => logger.info(`Server running on port ${PORT}`));

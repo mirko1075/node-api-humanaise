@@ -1,32 +1,72 @@
-import axios from "axios";
-import { createReadStream } from "fs";
+import process from 'node:process';
+import fs from 'fs';
+import axios from 'axios';
+import logger from './logger.js';
+
+export const validateWavFile = (filePath) => {
+    const header = fs.readFileSync(filePath, { length: 44 }); // WAV header is 44 bytes
+    const riffHeader = header.slice(0, 4).toString();
+    const waveHeader = header.slice(8, 12).toString();
+  
+    if (riffHeader !== 'RIFF' || waveHeader !== 'WAVE') {
+      throw new Error('Invalid WAV file: Missing RIFF or WAVE header');
+    }
+  
+    logger.info('WAV file is valid');
+  };
 
 const detectLanguage = async (filePath) => {
-  console.log("Detecting language with Deepgram for file:", filePath);
-  try {
-      const fileStream = createReadStream(filePath);
+    try {
+        if (!fs.existsSync(filePath)) {
+        throw new Error('File does not exist');
+        }
 
-      const response = await axios.post("https://api.deepgram.com/v1/listen", fileStream, {
-          headers: {
-              // eslint-disable-next-line no-undef
-              "Authorization": `Token ${process.env.DEEPGRAM_API_KEY}`,
-              "Content-Type": "audio/wav",
-          },
-          params: {
-              detect_language: true,
-          },
-      });
+        // Log file details
+        const stats = fs.statSync(filePath);
+        logger.info(`File size: ${stats.size} bytes`);
+        logger.info(`File path: ${filePath}`);
 
-      // Extract the detected language and confidence
-      const detectedLanguage = response.data.results.channels[0].detected_language;
-      const languageConfidence = response.data.results.channels[0].language_confidence;
-      const languageCode = response.data.results.channels[0].languageCode;
-      console.log("Detected language:", detectedLanguage, "Confidence:", languageConfidence);
-      return { detectedLanguage, languageConfidence, languageCode }; // Return both detected language and confidence
-  } catch (error) {
-      console.error("Error in Deepgram detection:", error.response?.data || error.message);
-      throw new Error("Failed to detect language.");
-  }
+        // Read the audio file
+        const audioData = fs.readFileSync(filePath);
+
+        // Log the first 100 bytes of the file (for debugging)
+        logger.info(`First 100 bytes of file: ${audioData.slice(0, 100).toString('hex')}`);
+
+        // Send the audio data to Deepgram
+        const response = await axios.post(
+        'https://api.deepgram.com/v1/listen',
+        audioData,
+        {
+            headers: {
+            'Authorization': `Token ${process.env.DEEPGRAM_API_KEY}`,
+            'Content-Type': 'audio/wav', // Ensure this matches the file format
+            },
+            params: {
+                detect_language: true,
+            },
+        }
+        );
+
+        // Extract language detection results
+        console.log('response.data :>> ', JSON.stringify(response.data.results.channels[0]));
+        const { detected_language, language_confidence } = response.data.results.channels[0];
+        return {
+        detectedLanguage: detected_language,
+        languageConfidence: language_confidence,
+        };
+    } catch (error) {
+        if (error.response) {
+        // Deepgram API returned an error
+        const { err_msg, err_code } = error.response.data;
+        throw new Error(`Deepgram API error: ${err_msg} (code: ${err_code})`);
+        } else if (error.request) {
+        // The request was made but no response was received
+        throw new Error('No response received from Deepgram');
+        } else {
+        // Something went wrong while setting up the request
+        throw new Error(`Error in detectLanguage: ${error.message}`);
+        }
+    }
 };
 
 export default detectLanguage;
