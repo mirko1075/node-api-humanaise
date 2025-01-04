@@ -40,8 +40,8 @@ const upload = multer({
 router.post('/upload', upload.single('file'), async (req, res) => {
   const { originalname } = req.file
   const filePath = req.file.location // File location on S3
-  const organizationId = req.body.organization_id
-  const userId = req.body.user_id
+  const organizationId = req.body.organization_id || 1
+  const userId = req.body.user_id || 1
 
   try {
     const [fileId] = await knex('files')
@@ -63,7 +63,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 })
 
 router.delete('/delete-file', async (req, res) => {
-  const { key } = req.body // Pass the key of the file to delete in the request body
+  const { key, id } = req.body // Pass the key of the file to delete in the request body
 
   if (!key) {
     return res.status(400).json({ error: 'File key is required' })
@@ -76,17 +76,20 @@ router.delete('/delete-file', async (req, res) => {
     }
 
     const response = await deleteFileFromS3(params)
-    console.log('response :>> ', response)
+    logger.info(`File '${key}' deleted successfully from S3`) // Log success
+    await knex('files').where({ id }).del()
+    logger.info(`File '${key}' deleted successfully from DB`) // Log success
     if (response.$metadata.httpStatusCode !== 204) {
-      throw new Error('Failed to delete file')
+      throw new Error('Failed to delete file from S3')
     }
 
     res.status(200).json({ message: `File '${key}' deleted successfully` })
   } catch (error) {
     logger.error('Error deleting file:', error)
-    res.status(500).json({ error: 'Failed to delete file' })
+    res.status(500).json({ error })
   }
 })
+
 router.put('/files/:id/status', async (req, res) => {
   const { id } = req.params
   const { status } = req.body
@@ -562,7 +565,7 @@ router.post('/transcribe', async (req, res) => {
       audio_duration: totalMinutes,
       cost: totalCost
     })
-
+    fs.unlinkSync(txtFilePath)
     logger.info(`Transcription completed successfully for file: ${fileUrl}`) // Log success
     res.json(responseObject)
   } catch (error) {
