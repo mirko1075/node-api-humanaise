@@ -23,14 +23,25 @@ export const uploadFileToS3 = async ({
   body,
   contentType
 }) => {
-  const command = new PutObjectCommand({
+  if (!bucketName) {
+    throw new Error('Bucket name is required')
+  }
+
+  const params = {
     Bucket: bucketName,
     Key: key,
     Body: body,
     ContentType: contentType
-  })
-  await s3Client.send(command)
-  return `https://${bucketName}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`
+  }
+
+  try {
+    await s3Client.send(new PutObjectCommand(params))
+    console.log(`File uploaded successfully: ${key}`)
+    return `https://${bucketName}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`
+  } catch (err) {
+    console.error('Error uploading to S3:', err)
+    throw err
+  }
 }
 
 // Retrieve File from S3

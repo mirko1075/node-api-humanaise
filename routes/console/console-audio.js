@@ -20,45 +20,68 @@ import { translateWithGoogle } from '../../utils/translateWithGoogle.js'
 import knex from '../../db/knex.js'
 import { calculateCost } from '../../db/calculateCost.js'
 import { logUsage } from '../../middleware/logUsage.js'
-import multerS3 from 'multer-s3'
-import { uploadFileToS3, s3Client, deleteFileFromS3 } from '../../utils/aws.js'
+import { uploadFileToS3, deleteFileFromS3 } from '../../utils/aws.js'
 import logger from '../../utils/logger.js'
 import process from 'node:process'
+import transliterate from 'transliteration' // Install this package: npm install transliteration
 
 const router = express.Router()
 
-const upload = multer({
-  storage: multerS3({
-    s3: s3Client,
-    bucket: process.env.AWS_S3_BUCKET,
-    key: (req, file, cb) => {
-      cb(null, `uploads/${Date.now()}_${file.originalname}`)
-    }
-  })
-})
+const upload = multer({ storage: multer.memoryStorage() }) // Use memory storage for temporary file handling
 
 router.post('/upload', upload.single('file'), async (req, res) => {
-  const { originalname } = req.file
-  const filePath = req.file.location // File location on S3
+  if (!req.file) {
+    return res.status(400).send({ error: 'No file uploaded' })
+  }
+  console.log(`Using bucket: ${process.env.AWS_S3_BUCKET}`)
+
+  const { originalname, mimetype, buffer } = req.file // Access file data from multer
   const organizationId = req.body.organization_id || 1
   const userId = req.body.user_id || 1
 
   try {
-    const [fileId] = await knex('files')
+    const timestamp = Date.now() // Get the current timestamp
+    const fileExtension = path.extname(originalname) // Extract the file extension
+    const safeName = transliterate.slugify(
+      path.basename(originalname, fileExtension)
+    ) // Transliterate and slugify name
+    const truncatedName = safeName.slice(0, 10) || 'file' // Use first 10 letters or fallback to 'file'
+
+    const s3Key = `uploads/${organizationId}/${timestamp}_${truncatedName}${fileExtension}` // Generate S3 key
+    // Upload the file to S3
+    const s3Params = {
+      bucketName: process.env.AWS_S3_BUCKET, // Ensure this is defined
+      key: s3Key,
+      body: buffer,
+      contentType: mimetype
+    }
+
+    await uploadFileToS3(s3Params)
+
+    const filePath = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`
+
+    // Insert a new record in the database with the S3 path and converted name
+    const [fileRecord] = await knex('files')
       .insert({
-        name: originalname,
+        name: `${timestamp}_${truncatedName}${fileExtension}`, // Save the new name
         path: filePath,
         organization_id: organizationId,
         user_id: userId,
         status: 'pending'
       })
-      .returning('id')
+      .returning('*')
 
     logger.info(`File uploaded successfully: ${originalname}`) // Log success
-    res.status(201).json({ id: fileId.id, filePath })
+
+    // Respond with the file record
+    res.status(201).json({
+      id: fileRecord.id,
+      name: fileRecord.name, // Display the converted name
+      path: fileRecord.path
+    })
   } catch (err) {
-    logger.error('Error saving file metadata:', err) // Log error
-    res.status(500).send('Failed to save file metadata')
+    logger.error('Error uploading file:', err) // Log error
+    res.status(500).send('Failed to upload file')
   }
 })
 
@@ -471,7 +494,10 @@ router.post('/transcribe', async (req, res) => {
     return res.status(400).send({ error: 'fileUrl is required' })
   }
 
-  let inputPath = fileUrl.split('/').pop()
+  const tempDir = `temp-${Date.now()}`
+  fs.mkdirSync(tempDir, { recursive: true })
+  let inputPath = path.join(tempDir, path.basename(fileUrl))
+  let txtFilePath, wavPath
 
   try {
     // Download the file from S3
@@ -482,18 +508,20 @@ router.post('/transcribe', async (req, res) => {
     })
     const writer = fs.createWriteStream(inputPath)
     response.data.pipe(writer)
+
     // Wait for the file to finish writing
     await new Promise((resolve, reject) => {
       writer.on('finish', resolve) // Call resolve when the file is fully written
       writer.on('error', reject) // Call reject if an error occurs
     })
+
     let durationSeconds = await getAudioDuration(inputPath)
     let totalMinutes = 0
     let totalCost = 0
 
     // Convert to WAV if necessary
     if (!inputPath.endsWith('.wav')) {
-      const wavPath = `${inputPath}.wav`
+      wavPath = `${inputPath}.wav`
       await convertToWav(inputPath, wavPath)
       fs.unlinkSync(inputPath)
       inputPath = wavPath
@@ -513,8 +541,9 @@ router.post('/transcribe', async (req, res) => {
 
     // Save the transcription as a .txt file
     const txtFileName = `transcriptions/${path.basename(fileUrl, path.extname(fileUrl))}-whisper-transcription.txt`
-    const txtFilePath = `temp-${Date.now()}.txt`
+    txtFilePath = path.join(tempDir, `${Date.now()}-whisper.txt`)
     fs.writeFileSync(txtFilePath, whisperTranscription)
+
     // Upload the .txt file to S3
     const whisperTxtFileUrl = await uploadFileToS3({
       bucketName: process.env.AWS_S3_BUCKET,
@@ -539,14 +568,15 @@ router.post('/transcribe', async (req, res) => {
         duration: durationSeconds
       })
       // Save the transcription as a .txt file
-      const txtFileName = `transcriptions/${path.basename(fileUrl, path.extname(fileUrl))}-google-transcription.txt`
-      const txtFilePath = `temp-${Date.now()}.txt`
-      fs.writeFileSync(txtFilePath, googleResult.transcription)
+      const googleTxtFileName = `transcriptions/${path.basename(fileUrl, path.extname(fileUrl))}-google-transcription.txt`
+      const googleTxtFilePath = path.join(tempDir, `${Date.now()}-google.txt`)
+      fs.writeFileSync(googleTxtFilePath, googleResult.transcription)
+
       // Upload the .txt file to S3
       const googleTxtFileUrl = await uploadFileToS3({
         bucketName: process.env.AWS_S3_BUCKET,
-        key: txtFileName,
-        body: fs.createReadStream(txtFilePath),
+        key: googleTxtFileName,
+        body: fs.createReadStream(googleTxtFilePath),
         contentType: 'text/plain'
       })
 
@@ -565,15 +595,27 @@ router.post('/transcribe', async (req, res) => {
       audio_duration: totalMinutes,
       cost: totalCost
     })
-    fs.unlinkSync(txtFilePath)
+    fs.rmSync(tempDir, { recursive: true, force: true })
     logger.info(`Transcription completed successfully for file: ${fileUrl}`) // Log success
+    await knex('files').where({ path: fileUrl }).update({
+      transcriptStatus: 'available',
+      transcriptionFilePath: whisperTxtFileUrl
+    })
     res.json(responseObject)
   } catch (error) {
-    logger.error('Error processing request:', error) // Log error
+    console.error('error :>> ', error)
+    await knex('files').where({ path: fileUrl }).update({
+      transcriptStatus: 'failed'
+    })
+    logger.error('Error processing request:') // Log error
     res.status(500).send({ error: 'Failed to transcribe audio file' })
   } finally {
     // Cleanup
     if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath)
+    if (fs.existsSync(txtFilePath)) fs.unlinkSync(txtFilePath)
+    if (fs.existsSync(tempDir))
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    if (fs.existsSync(wavPath)) fs.unlinkSync(wavPath)
   }
 })
 
@@ -670,7 +712,6 @@ router.post('/translate-text', async (req, res) => {
     isMultiModel = false,
     organization_id = 1
   } = req.body
-
   if (!fileUrl || !targetLanguage) {
     return res
       .status(400)
@@ -723,6 +764,11 @@ router.post('/translate-text', async (req, res) => {
       body: fs.createReadStream(txtFilePath),
       contentType: 'text/plain'
     })
+    await knex('files').where({ transcriptionFilePath: fileUrl }).update({
+      translationStatus: 'available',
+      translationFilePath: whisperTxtFileUrl
+    })
+
     // Use Google Translate if isMultiModel is true
     const responseObject = {
       message: 'Translation successful',
@@ -761,11 +807,14 @@ router.post('/translate-text', async (req, res) => {
       tokens_used: totalTokens,
       cost: totalCost
     })
-
+    fs.unlinkSync(txtFilePath) // Remove the temporary .txt file
     logger.info(`Translation completed successfully for file: ${fileUrl}`) // Log success
     res.status(200).json(responseObject)
   } catch (error) {
     logger.error('Error during translation:', error) // Log error
+    await knex('files').where({ path: fileUrl }).update({
+      translationStatus: 'failed'
+    })
     res.status(500).json({ error: 'Failed to translate the text.' })
   } finally {
     // Cleanup
@@ -855,6 +904,7 @@ router.post('/detect-language', async (req, res) => {
       confidence: languageConfidence,
       totalCost
     })
+    fs.unlinkSync(inputPath)
   } catch (error) {
     logger.error('Error detecting language:', error)
     res.status(500).send({
