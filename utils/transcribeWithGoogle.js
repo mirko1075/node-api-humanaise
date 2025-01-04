@@ -60,13 +60,12 @@ const translateText = async (text, language) => {
   return `Translated text in ${language}: ${text}`
 }
 
-async function transcribeWithGoogle(filePath, options) {
+async function transcribeWithGoogle(filePath, language, translate) {
   try {
     const bucketName = process.env.GCS_BUCKET_NAME // Ensure you set this in your environment
     if (!bucketName) {
       throw new Error('GCS bucket name is not configured in the environment.')
     }
-    const { language, translate } = options
     // Upload file to GCS
     const gcsUri = await uploadToGCS(filePath, bucketName)
 
@@ -85,7 +84,7 @@ async function transcribeWithGoogle(filePath, options) {
         punctuation: true
       }
     }
-
+    console.log('request :>> ', request)
     // Call LongRunningRecognize
     console.log('Calling LongRunningRecognize...')
     const [operation] = await speechClient.longRunningRecognize(request)
@@ -98,11 +97,8 @@ async function transcribeWithGoogle(filePath, options) {
     const transcription = response.results
       .map((result) => result.alternatives[0].transcript)
       .join('\n')
-    if (options.translate) {
-      const translatedText = await translateText(
-        transcription,
-        options.language
-      )
+    if (translate) {
+      const translatedText = await translateText(transcription, language)
       return { transcription, translation: translatedText }
     }
     console.log('transcription:', transcription)

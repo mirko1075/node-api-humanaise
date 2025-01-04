@@ -458,7 +458,7 @@ router.post('/split-transcribe', async (req, res) => {
     // Log the usage to the database
     await logUsage({
       organization_id,
-      service: 'Transcribe',
+      service: 'Transcription',
       audio_duration: durationSeconds,
       cost: totalCost
     })
@@ -482,7 +482,6 @@ router.post('/split-transcribe', async (req, res) => {
 router.post('/transcribe', async (req, res) => {
   const {
     fileUrl,
-    targetLanguage = 'en',
     language = 'en',
     doubleModel = false,
     organization_id = 1,
@@ -560,10 +559,10 @@ router.post('/transcribe', async (req, res) => {
 
     // Google transcription (if doubleModel is true)
     if (doubleModel) {
-      const googleResult = await transcribeWithGoogle(inputPath, targetLanguage)
+      const googleResult = await transcribeWithGoogle(inputPath, language)
       totalMinutes += durationSeconds
       totalCost += await calculateCost({
-        service: 'Transcribe',
+        service: 'Transcription',
         provider: 'Google',
         duration: durationSeconds
       })
@@ -580,7 +579,7 @@ router.post('/transcribe', async (req, res) => {
         contentType: 'text/plain'
       })
 
-      responseObject.googleTranscript = googleResult.transcription
+      responseObject.googleTranscription = googleResult.transcription
       responseObject.googleTxtFileUrl = googleTxtFileUrl
     }
 
@@ -591,7 +590,7 @@ router.post('/transcribe', async (req, res) => {
     await logUsage({
       organization_id,
       user_id,
-      service: 'Transcribe',
+      service: 'Transcription',
       audio_duration: totalMinutes,
       cost: totalCost
     })
@@ -892,7 +891,7 @@ router.post('/detect-language', async (req, res) => {
     // Log the usage to the database
     await logUsage({
       organization_id,
-      service: 'Transcribe',
+      service: 'Transcription',
       audio_duration: durationSeconds / 60,
       cost: totalCost
     })
