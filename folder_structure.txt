@@ -1,0 +1,150 @@
+.
+├── README.md
+├── combined.log
+├── converted
+├── db
+│   ├── Create_DB.sql
+│   ├── calculateCost.js
+│   ├── diagram.png
+│   ├── insert_services.sql
+│   ├── knex.js
+│   └── providers.sql
+├── error.log
+├── eslint.config.mjs
+├── folder_structure.txt
+├── google-credentials.json
+├── knexfile.js
+├── middleware
+│   ├── apiKeyAuth.js
+│   ├── auth.js
+│   ├── authenticateToken.js
+│   ├── errorHandler.js
+│   ├── logUsage.js
+│   └── rateLimiter.js
+├── migrations
+│   ├── 1_create_organizations.js
+│   ├── 20250106114344_create_markets.js
+│   ├── 20250106114719_create_projects.js
+│   ├── 20250106114754_create_projects_markets.js
+│   ├── 20250106115741_create_service_usage.js
+│   ├── 20250106120222_create_files.js
+│   ├── 20250106120924_create_transcriptions.js
+│   ├── 20250106121023_create_translations.js
+│   ├── 20250106121700_create_conversations.js
+│   ├── 2_create_users.js
+│   ├── 3_create_user_details.js
+│   ├── 4_create_services.js
+│   ├── 5_create_service_pricing.js
+│   ├── 6_create_providers.js
+│   └── 7_create_models.js
+├── output
+│   ├── 1735298275051
+│   │   └── output000.wav
+│   ├── 1735298387242
+│   │   └── output000.wav
+│   ├── 1735298562856
+│   │   └── output000.wav
+│   ├── 1735298681704
+│   │   └── output000.wav
+│   ├── 1735304898243
+│   │   └── output000.wav
+│   ├── 1735316393964
+│   │   └── output000.wav
+│   ├── 2024-12-27
+│   │   ├── file-001-thai-1735315611593.txt
+│   │   └── file-001-thai-1735315663342.txt
+│   └── 2024-12-28
+│       └── file-001-thai-1735380048625.txt
+├── package-lock.json
+├── package.json
+├── routes
+│   ├── auth
+│   │   └── auth.js
+│   ├── console
+│   │   ├── console-audio.js
+│   │   └── presigned-url.js
+│   ├── user
+│   │   └── user.js
+│   └── web
+│       └── web-audio.js
+├── seeds
+│   ├── a_seed_organizations.js
+│   ├── b_seed_users.js
+│   ├── c_seed_organization_members.js
+│   ├── d_seed_services.js
+│   ├── seed_markets.js
+│   ├── seed_models.js
+│   ├── seed_projects.js
+│   ├── seed_projects_markets.js
+│   ├── seed_providers.js
+│   └── seed_service_pricing.js
+├── server.js
+├── temp-1736012655983
+├── temp-1736012698584
+├── temp-1736012832541
+├── test_knex.js
+├── transcription-app-user_accessKeys.csv
+├── uploads
+│   ├── 0acbafc39db688c82a502edc7d4ec1e6
+│   ├── 1508cb1af35187fc0d11c92703ec99e8.wav
+│   ├── 155399b09609cda58cdd3c202a93dbbb.wav
+│   ├── 162a9f40257c1e2280d6133d50c125b4.wav
+│   ├── 162a9f40257c1e2280d6133d50c125b4.wav_snippet.wav
+│   ├── 1738814a7afcdf9de4c73a6cfc8700d9
+│   ├── 18154175a3375c2d5d118e9d48a1db59.wav
+│   ├── 18154175a3375c2d5d118e9d48a1db59.wav_snippet.wav
+│   ├── 24d2ea2b90d2920103f9a971e7372e35.wav
+│   ├── 2f00dd78c62928eb7d1991fefdf49ae6.wav
+│   ├── 2f4d4be2596c2f88a9043e35280e963c
+│   ├── 2f7af0f987ebf596525b7e6d2ea4b2dd
+│   ├── 3c7750d35ff7b311df3ce91bfb092f2e.wav
+│   ├── 3c7750d35ff7b311df3ce91bfb092f2e.wav_snippet.wav
+│   ├── 3fa7c8be9a53dd54d50156496ee650ad.wav
+│   ├── 3fa7c8be9a53dd54d50156496ee650ad.wav_snippet.wav
+│   ├── 4dd8b0cc4278fddb3b779e5a569b4445
+│   ├── 6401ee0aaa231d084625218af42dd74e.wav
+│   ├── 66b2c55a61167874052283b302571dd6.wav
+│   ├── 66b2c55a61167874052283b302571dd6.wav_snippet.wav
+│   ├── 700bf4a7542540115a0af49d207bab1a.wav
+│   ├── 70afc7858cd1f520f5de9fd00c703761.wav
+│   ├── 7998e11bc4c1e4747939623bf239a39b
+│   ├── 7bb3bfd45fccba38ec0b87676a7bf7d5
+│   ├── 7deadcc8e8e6835ec9f15ab29c9dc417.wav
+│   ├── 81f255a823de890542170fe5d69f0c60.wav
+│   ├── 81f255a823de890542170fe5d69f0c60.wav_snippet.wav
+│   ├── 88a79d323017a6be9cad50316fb43f53.wav
+│   ├── a048e275aa79ae9c7c3003ec70a3325a.wav
+│   ├── a41fa665dbfd87c6b363d47f304853e4.wav
+│   ├── b1d2686ed189c0041fd65af5e98ed2cb.wav
+│   ├── b1d2686ed189c0041fd65af5e98ed2cb.wav_snippet.wav
+│   ├── b510e36e46db9b0ab44242acd6fdc36f.wav
+│   ├── c389d114be5d096c940bdbf3915b95a9.wav
+│   ├── d6a60665afaffab9fd78c211471d4475.wav
+│   ├── daed904b5f21c9637e6713b5c9f4e5a9
+│   ├── dea08f78c5bb901f249d7b0d0e551206
+│   ├── e3b403a0bc0e0eb072ea204c4c293663
+│   ├── e3e2a2ba99e7504c838ebaee4b82de0c.wav
+│   ├── ed30243dacadf00c2bcab343fd41b288.wav
+│   ├── efc1f6b8102c932e1f2142c164e265f3
+│   ├── efc1f6b8102c932e1f2142c164e265f3.wav
+│   ├── f14f8135b646ef95199fd6bfdb0543ee
+│   ├── f53f125d7eb64947bc3cd27a5d3645c1
+│   └── fd439e6dbd25c7987c0748428ea07abf.wav
+└── utils
+    ├── aws.js
+    ├── checkAudioFormat.js
+    ├── convertToWav.js
+    ├── detectLanguage.js
+    ├── ffmpegUtils.js
+    ├── fileUtils.js
+    ├── getAudioDuration.js
+    ├── logger.js
+    ├── splitAudioBySizeAndSilence.js
+    ├── transcribe-whisper.js
+    ├── transcribeWithGoogle.js
+    ├── translateWithGoogle.js
+    ├── translateWithWhisper.js
+    ├── uploadToGCS.js
+    └── validateAudioContent.js
+
+25 directories, 123 files

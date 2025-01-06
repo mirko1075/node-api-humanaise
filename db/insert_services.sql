@@ -1,0 +1,5 @@
+"id","name","description","is_active","created_at","updated_at"
+1,"Transcription","Transcribe audio files to text.",True,"2025-01-06 11:20:17.910867","2025-01-06 11:20:17.910867"
+2,"Data Analysis","Analyze and summarize data.",True,"2025-01-06 11:20:17.910867","2025-01-06 11:20:17.910867"
+3,"Translation","Translate text into different languages.",True,"2025-01-06 11:20:17.910867","2025-01-06 11:20:17.910867"
+4,"Sentiment Analysis","Sentiment Analysis.",True,"2025-01-06 11:21:08.310044","2025-01-06 11:21:08.310044"
