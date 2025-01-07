@@ -1,10 +1,11 @@
 import path from 'path'
+import fs from 'fs'
+import process from 'node:process'
 import transliterate from 'transliteration'
 import knex from '../config/knex.js'
-import { uploadFileToS3 } from '../utils/aws.js'
-import process from 'node:process'
-import { deleteFileFromS3 } from '../utils/aws.js'
+import { uploadFileToS3, deleteFileFromS3 } from '../utils/aws.js'
 import logger from '../utils/logger.js'
+import calculateCostAndLogUsage from '../utils/costAndUsageTracker.js'
 
 const fileService = {
   /**
@@ -133,6 +134,57 @@ const fileService = {
     } catch (error) {
       logger.error('Error fetching files from database:', error)
       throw new Error('Failed to fetch files')
+    }
+  },
+
+  createTextFile: async ({
+    text,
+    folder,
+    fileName,
+    organizationId,
+    userId
+  }) => {
+    const timestamp = Date.now()
+    const textFileName = `${fileName}-${timestamp}.txt` // Generate a unique file name
+    const tempFilePath = `temp-${textFileName}` // Temporary local file path
+
+    try {
+      // Write the text to a temporary file
+      fs.writeFileSync(tempFilePath, text)
+
+      // Upload the file to S3
+      const s3Key = `${folder}/${textFileName}`
+      const s3Url = await uploadFileToS3({
+        bucketName: process.env.AWS_S3_BUCKET,
+        key: s3Key,
+        body: fs.createReadStream(tempFilePath),
+        contentType: 'text/plain'
+      })
+
+      // Log service usage and calculate cost
+      const bytes = fs.statSync(tempFilePath).size
+      const cost = await calculateCostAndLogUsage({
+        serviceId: 7, // Assuming "File Processing" is service ID 7
+        organizationId,
+        userId,
+        audioDuration: 0, // No audio duration for text files
+        bytes,
+        status: 'completed'
+      })
+
+      logger.info(`Text file created and uploaded successfully: ${s3Url}`)
+
+      return {
+        message: 'Text file created and uploaded successfully',
+        s3Url,
+        cost
+      }
+    } catch (error) {
+      logger.error('Error in createTextFile service:', error)
+      throw new Error('Failed to create and upload text file.')
+    } finally {
+      // Cleanup temporary file
+      if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath)
     }
   }
 }

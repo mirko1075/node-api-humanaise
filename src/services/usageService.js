@@ -1,5 +1,5 @@
 import knex from '../config/knex.js'
-import calculateCost from '../utils/calculateCost.js'
+import { calculateCost } from '../../db/calculateCost.js'
 import logger from '../utils/logger.js'
 
 const usageService = {

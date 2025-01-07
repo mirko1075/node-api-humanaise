@@ -1,38 +1,47 @@
 import audioService from '../services/audioService.js'
 import logger from '../utils/logger.js'
+import process from 'node:process'
 
 const audioController = {
   /**
-   * Split audio file into smaller segments and return a ZIP of the files
+   *
+   * @param {*} req
+   * @param {*} res
+   * @returns  {String} - URL of the converted file
+   * @throws {Error} - If the file URL is not provided
+   * @throws {Error} - If the audio conversion fails
+   * @throws {Error} - If the audio upload fails
+   * @throws {Error} - If the audio deletion fails
+   * @throws {Error} - If the audio duration is not a number
+   * @throws {Error} - If the audio duration is less than 1
+   * @throws {Error} - If the audio duration is greater than 60
+   * @throws {Error} - If the audio duration is not an integer
+   * @throws {Error} - If the audio duration is not a multiple of 60
    */
-  async splitAudio(req, res) {
+  async convertToWav(req, res) {
     const {
-      duration = 30,
+      fileUrl,
+      bucketName = process.env.AWS_S3_BUCKET,
       organization_id = 1,
-      user_id = 1,
-      fileUrl
+      user_id = 1
     } = req.body
 
     if (!fileUrl) {
-      return res.status(400).json({ error: 'No file uploaded' })
+      return res.status(400).json({ error: 'File URL is required.' })
     }
 
     try {
-      // Delegate the splitting and processing logic to the service
-      const zipUrl = await audioService.splitAndZipAudio({
+      const result = await audioService.convertToWav({
         fileUrl,
-        duration,
+        bucketName,
         organizationId: organization_id,
         userId: user_id
       })
 
-      logger.info(`Audio split and zipped successfully: ${zipUrl}`)
-      res
-        .status(201)
-        .json({ message: 'Audio split and zipped successfully', zipUrl })
+      res.status(201).json(result)
     } catch (error) {
-      logger.error('Error processing audio:', error)
-      res.status(500).json({ error: 'Failed to process audio file' })
+      logger.error('Error in convertToWavController:', error)
+      res.status(500).json({ error: 'Failed to convert audio file.' })
     }
   }
 }

@@ -3,7 +3,18 @@ import logger from '../utils/logger.js'
 
 const transcriptionController = {
   /**
-   * Split and transcribe an audio file
+   * Split an audio file into segments and transcribe them
+   * @param {*} req
+   * @param {*} res
+   * @returns {Object} - Transcription result
+   * @throws {Error} - If the file URL is not provided
+   * @throws {Error} - If the transcription fails
+   * @throws {Error} - If the transcription result is not found
+   * @throws {Error} - If the transcription result is not saved
+   * @throws {Error} - If the transcription result is not updated
+   * @throws {Error} - If the transcription result is not found
+   * @throws {Error} - If the transcription result is not deleted
+   * @throws {Error} - If the transcription result is not updated
    */
   async splitAndTranscribe(req, res) {
     const {
@@ -36,9 +47,18 @@ const transcriptionController = {
       res.status(500).json({ error: 'Failed to process audio file' })
     }
   },
-
   /**
    * Transcribe an audio file
+   * @param {*} req
+   * @param {*} res
+   * @returns {Object} - Transcription result
+   * @throws {Error} - If the file URL is not provided
+   * @throws {Error} - If the transcription fails
+   * @throws {Error} - If the transcription result is not found
+   * @throws {Error} - If the transcription result is not saved
+   * @throws {Error} - If the transcription result is not updated
+   * @throws {Error} - If the transcription result is not found
+   * @throws {Error} - If the transcription result is not deleted
    */
   async transcribe(req, res) {
     const {

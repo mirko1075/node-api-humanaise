@@ -9,6 +9,8 @@ import calculateCostAndLogUsage from '../utils/costAndUsageTracker.js'
 import getAudioDuration from '../utils/getAudioDuration.js'
 import convertToWav from '../utils/convertToWav.js'
 import process from 'node:process'
+import logger from '../utils/logger.js'
+import { getFileFromS3 } from '../utils/aws.js'
 
 const execPromise = util.promisify(exec)
 
@@ -16,6 +18,7 @@ const audioService = {
   /**
    * Split and zip an audio file
    * @param {Object} options
+   * @param {String} options.fileUrl - URL of the file to split
    * @param {String} options.s3FileUrl - URL of the file in S3
    * @param {Number} options.duration - Duration for each split segment
    * @param {Number} options.organizationId - Organization ID
@@ -24,7 +27,7 @@ const audioService = {
    */
   async splitAndZipAudio({ fileUrl, duration, organizationId, userId }) {
     const inputPath = `temp-${Date.now()}.wav`
-    const outputDir = `output-${Date.now()}`
+    const outputDir = `output/${Date.now()}`
     const zipPath = `${outputDir}.zip`
     try {
       // Download the file from S3
@@ -100,6 +103,80 @@ const audioService = {
       if (fs.existsSync(outputDir))
         fs.rmSync(outputDir, { recursive: true, force: true })
       if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath)
+    }
+  },
+
+  convertToWav: async ({ fileUrl, bucketName, organizationId, userId }) => {
+    const uniqueId = Date.now()
+    const tempInputPath = `temp-${uniqueId}-${path.basename(fileUrl)}`
+    const tempOutputPath = tempInputPath.replace(path.extname(fileUrl), '.wav')
+
+    try {
+      // Parse bucket and key from fileUrl
+      const key = fileUrl.replace(
+        `https://${bucketName}.s3.${process.env.AWS_REGION}.amazonaws.com/`,
+        ''
+      )
+
+      // Download the file from S3
+      logger.info(`Downloading file from S3: bucket=${bucketName}, key=${key}`)
+      const s3Stream = await getFileFromS3({ bucketName, key })
+
+      // Save to local temp file
+      await new Promise((resolve, reject) => {
+        const writer = fs.createWriteStream(tempInputPath)
+        s3Stream.pipe(writer)
+        writer.on('finish', resolve)
+        writer.on('error', reject)
+      })
+
+      logger.info(`File downloaded to: ${tempInputPath}`)
+
+      // Get audio duration
+      const durationSeconds = await getAudioDuration(tempInputPath)
+      logger.info(`Audio duration: ${durationSeconds} seconds`)
+
+      // Convert to WAV
+      await convertToWav(tempInputPath, tempOutputPath)
+      logger.info(`File converted to WAV: ${tempOutputPath}`)
+
+      // Calculate and log the cost
+      const totalCost = await calculateCostAndLogUsage({
+        serviceId: 6, // Assuming "Audio Processing with FFmpeg" is service ID 6
+        organizationId,
+        userId,
+        audioDuration: durationSeconds / 60, // Convert to minutes
+        bytes: fs.statSync(tempInputPath).size,
+        status: 'completed'
+      })
+
+      // Upload the WAV file to S3
+      const wavKey = `converted/${path
+        .basename(tempInputPath)
+        .replace(path.extname(tempInputPath), '.wav')}`
+      const wavUrl = await uploadFileToS3({
+        bucketName,
+        key: wavKey,
+        body: fs.createReadStream(tempOutputPath),
+        contentType: 'audio/wav'
+      })
+
+      logger.info(`File converted and uploaded successfully: ${wavUrl}`)
+
+      // Return the result
+      return {
+        message: 'File converted successfully',
+        wavUrl,
+        totalCost,
+        durationSeconds
+      }
+    } catch (error) {
+      logger.error('Error in convertToWav service:', error)
+      throw new Error('Failed to convert audio file.')
+    } finally {
+      // Cleanup temp files
+      if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath)
+      if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath)
     }
   }
 }

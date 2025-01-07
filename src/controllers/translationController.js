@@ -7,7 +7,16 @@ import { uploadFileToS3 } from '../utils/aws.js'
 
 const translationController = {
   /**
-   * Translate audio content
+   * Translate audio from a file
+   * @param {*} req
+   * @param {*} res
+   * @returns {Object} - Translation result
+   * @throws {Error} - If the file URL is not provided
+   * @throws {Error} - If the translation fails
+   * @throws {Error} - If the translation result is not saved
+   * @throws {Error} - If the translation result is not updated
+   * @throws {Error} - If the translation result is not found
+   * @throws {Error} - If the translation result is not deleted
    */
   async translateAudio(req, res) {
     const {
@@ -41,9 +50,18 @@ const translationController = {
       res.status(500).json({ error: 'Failed to translate the text.' })
     }
   },
-
   /**
    * Translate text from a file
+   * @param {*} req
+   * @param {*} res
+   * @returns {Object} - Translation result
+   * @throws {Error} - If the file URL is not provided
+   * @throws {Error} - If the translation fails
+   * @throws {Error} - If the translation result is not saved
+   * @throws {Error} - If the translation result is not updated
+   * @throws {Error} - If the translation result is not found
+   * @throws {Error} - If the translation result is not deleted
+   * @throws {Error} - If the target language is not provided
    */
   async translateText(req, res) {
     const {
@@ -77,7 +95,16 @@ const translationController = {
       res.status(500).json({ error: 'Failed to translate the text.' })
     }
   },
-
+  /**
+   * Upload a translation to S3
+   * @param {*} req
+   * @param {*} res
+   * @returns {String} - URL of the uploaded translation
+   * @throws {Error} - If the translation is not provided
+   * @throws {Error} - If the file URL is not provided
+   * @throws {Error} - If the model is not provided
+   * @throws {Error} - If the translation upload fails
+   */
   async uploadTranslation({ translation, fileUrl, model }) {
     const txtFileName = `translations/${path.basename(fileUrl, path.extname(fileUrl))}-${model}-translation.txt`
     const txtFilePath = path.join('temp', txtFileName)

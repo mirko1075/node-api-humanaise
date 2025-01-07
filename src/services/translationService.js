@@ -199,10 +199,6 @@ const translationService = {
 
   async uploadTranslation(organizationId, userId, translation, fileUrl, model) {
     try {
-      console.log(
-        'fileUrl :>> ',
-        fileUrl.split('/').pop().split('-')[0].split('_')[1]
-      )
       const uniqueId = Date.now()
       // Extract the base file name (without extension) from `fileUrl`
       const baseFileName =
