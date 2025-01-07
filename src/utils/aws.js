@@ -1,7 +1,8 @@
 import {
   S3Client,
   PutObjectCommand,
-  GetObjectCommand
+  GetObjectCommand,
+  DeleteObjectCommand
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner' // Correct import
 import process from 'node:process'
@@ -59,12 +60,21 @@ export const getFileFromS3 = async ({ bucketName, key }) => {
  * @returns {Promise<Object>} - AWS S3 response
  */
 export const deleteFileFromS3 = async ({ bucketName, key }) => {
-  const params = {
-    Bucket: bucketName,
-    Key: key
-  }
+  try {
+    const params = {
+      Bucket: bucketName,
+      Key: key
+    }
 
-  return s3Client.deleteObject(params).promise()
+    const command = new DeleteObjectCommand(params)
+    const response = await s3Client.send(command)
+
+    console.log(`File deleted successfully: ${key}`)
+    return response
+  } catch (error) {
+    console.error('Error deleting file from S3:', error)
+    throw new Error(`Failed to delete file: ${key}`)
+  }
 }
 // Generate Pre-signed URL for S3 Uploads
 export const generatePresignedUrl = async ({
