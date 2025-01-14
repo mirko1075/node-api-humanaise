@@ -4,9 +4,8 @@ import { exec } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import transcribeWithWhisper from '../../utils/transcribe-whisper.js'
-import convertToWav from '../../utils/convertToWav.js'
+import { convertToWav, convertToMp3 } from '../../utils/convertToWav.js'
 import detectLanguage from '../../utils/detectLanguage.js'
-import convertToMp3 from '../../utils/convertToMp3.js'
 import archiver from 'archiver'
 import {
   transcribeWithGoogle,
