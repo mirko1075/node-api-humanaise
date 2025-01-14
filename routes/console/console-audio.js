@@ -6,6 +6,7 @@ import path from 'path'
 import transcribeWithWhisper from '../../utils/transcribe-whisper.js'
 import convertToWav from '../../utils/convertToWav.js'
 import detectLanguage from '../../utils/detectLanguage.js'
+import convertToMp3 from '../../utils/convertToMp3.js'
 import archiver from 'archiver'
 import {
   transcribeWithGoogle,
@@ -466,6 +467,56 @@ router.post('/convert-to-wav', upload.single('file'), async (req, res) => {
     // Convert to WAV
 
     await convertToWav(inputPath, outputPath)
+    const totalCost = await calculateCost({
+      provider: 'Internal',
+      service: 'Audio Processing',
+      duration: durationSeconds
+    })
+    await knex('service_usage').insert({
+      organization_id,
+      user_id,
+      service: 'Audio Processing',
+      audio_duration: durationSeconds / 60, // Convert to minutes
+      created_at: new Date()
+    })
+    // Read the converted file data
+    const fileData = fs.readFileSync(outputPath)
+    const fileName = path.basename(outputPath)
+
+    // Log the response to debug
+    const response = {
+      name: fileName,
+      data: fileData.toString('base64'), // Base64 encode the binary data
+      totalCost
+    }
+
+    // Cleanup temporary files
+    fs.unlinkSync(inputPath) // Original uploaded file
+    fs.unlinkSync(outputPath) // Converted file
+
+    // Set explicit JSON response type
+    res.setHeader('Content-Type', 'application/json')
+    res.json(response)
+  } catch (error) {
+    console.error('Error processing request:', error)
+    res.status(500).json({ error: 'Failed to convert audio file' })
+  }
+})
+
+//route convert to mp3
+router.post('/convert-to-mp3', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' })
+  }
+  const organization_id = req.body.organization_id || 1 // Define organization_id
+  const user_id = req.body.user_id || 1 // Define user_id
+  const durationSeconds = await getAudioDuration(req.file.path)
+  const inputPath = req.file.path
+  const outputPath = `${inputPath}.mp3`
+
+  try {
+    // Convert to MP3
+    await convertToMp3(inputPath, outputPath)
     const totalCost = await calculateCost({
       provider: 'Internal',
       service: 'Audio Processing',
