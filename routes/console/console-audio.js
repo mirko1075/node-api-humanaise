@@ -205,7 +205,6 @@ router.post('/split-transcribe', upload.single('file'), async (req, res) => {
         .join('\n')
       responseObject.googleTranscriptions = googleTranscriptions
       responseObject.googleTranscription = googleTranscription
-
     }
 
     // Log the usage to the database
@@ -279,7 +278,10 @@ router.post('/transcribe', upload.single('file'), async (req, res) => {
       whisperTranscription
     }
     if (doubleModel) {
-      const googleResult = await transcribeWithGoogle(inputPath, {language:targetLanguage, translate: false})
+      const googleResult = await transcribeWithGoogle(inputPath, {
+        language: targetLanguage,
+        translate: false
+      })
       totalMinutes += durationSeconds
       totalCost += await calculateCost({
         service: 'Transcription',
@@ -313,9 +315,7 @@ router.post('/translate', async (req, res) => {
   const organization_id = req.body.organization_id || 1 // Define organization_id
   // Validate input
   if (!text || !language) {
-    return res
-      .status(400)
-      .json({ error: 'Text and language are required.' })
+    return res.status(400).json({ error: 'Text and language are required.' })
   }
 
   try {
@@ -326,8 +326,8 @@ router.post('/translate', async (req, res) => {
     // Perform Whisper translation
     // Use Whisper for translation
     const whisperResult = await translateWithWhisper(text, language)
-    console.log('whisperResult :>> ', whisperResult);
-    translations.whisper = whisperResult.text;
+    console.log('whisperResult :>> ', whisperResult)
+    translations.whisper = whisperResult.text
     totalTokens += whisperResult.usage.total_tokens || 0
     totalCost += await calculateCost({
       service: 'Translation',
@@ -361,7 +361,6 @@ router.post('/translate', async (req, res) => {
       totalTokens,
       totalCost
     })
-
   } catch (error) {
     console.error('Error during translation:', error)
     res.status(500).json({ error: 'Failed to translate the text.' })
@@ -370,11 +369,11 @@ router.post('/translate', async (req, res) => {
 
 router.post('/detect-language', upload.single('file'), async (req, res) => {
   if (!req.file) {
-    return res.status(400).send('No file uploaded');
+    return res.status(400).send('No file uploaded')
   }
-  const organization_id = req.body.organization_id || 1; // Define organization_id
-  let inputPath = req.file.path;
-  let totalCost = 0;
+  const organization_id = req.body.organization_id || 1 // Define organization_id
+  let inputPath = req.file.path
+  let totalCost = 0
   let durationSeconds = await getAudioDuration(inputPath)
 
   try {
@@ -399,7 +398,7 @@ router.post('/detect-language', upload.single('file'), async (req, res) => {
     const snippetPath = `${inputPath}_snippet.wav`
     console.log('Extracting 30-second snippet for language detection...')
     const command = `ffmpeg -i "${inputPath}" -t 100 -c copy "${snippetPath}"`
-    
+
     await new Promise((resolve, reject) => {
       exec(command, (error, stdout, stderr) => {
         if (error) {
@@ -417,20 +416,19 @@ router.post('/detect-language', upload.single('file'), async (req, res) => {
 
     const { detectedLanguage, languageConfidence, languageCode } =
       await detectLanguage(snippetPath)
-    
-    totalCost += await calculateCost({
-        service: 'Detect Language',
-        provider: 'Deepgram',
-        duration: durationSeconds / 60,
-    });
-    await logUsage({
-        organization_id,
-        service: 'Transcription',
-        audio_duration: durationSeconds / 60,
-        cost: totalCost || 0,
-        created_at: new Date().getTime(),
 
-    });
+    totalCost += await calculateCost({
+      service: 'Detect Language',
+      provider: 'Deepgram',
+      duration: durationSeconds / 60
+    })
+    await logUsage({
+      organization_id,
+      service: 'Transcription',
+      audio_duration: durationSeconds / 60,
+      cost: totalCost || 0,
+      created_at: new Date().getTime()
+    })
 
     // Cleanup
     fs.unlinkSync(inputPath)
@@ -460,7 +458,7 @@ router.post('/convert-to-wav', upload.single('file'), async (req, res) => {
   }
   const organization_id = req.body.organization_id || 1 // Define organization_id
   const user_id = req.body.user_id || 1 // Define user_id
-  const durationSeconds = await getAudioDuration(req.file.path) 
+  const durationSeconds = await getAudioDuration(req.file.path)
   const inputPath = req.file.path
   const outputPath = `${inputPath}.wav`
 
@@ -488,7 +486,7 @@ router.post('/convert-to-wav', upload.single('file'), async (req, res) => {
     const response = {
       name: fileName,
       data: fileData.toString('base64'), // Base64 encode the binary data
-      totalCost,
+      totalCost
     }
 
     // Cleanup temporary files
@@ -506,6 +504,15 @@ router.post('/convert-to-wav', upload.single('file'), async (req, res) => {
 
 router.post('/create-text-file', (req, res) => {
   const __dirname = path.resolve()
+  if (!fs.existsSync(`${__dirname}/output`)) {
+    fs.mkdirSync(`${__dirname}/output`)
+  }
+  if (!req.body.text) {
+    return res.status(400).json({ error: 'Missing text content' })
+  }
+  if (!req.body.fileName) {
+    return res.status(400).json({ error: 'Missing file name' })
+  }
   const textString = req.body.text // Assuming the text is sent in the request body
   const fileName = req.body.fileName || 'file' // Default file name
   const nowDate = new Date()
@@ -517,7 +524,7 @@ router.post('/create-text-file', (req, res) => {
   const textFileName = `${fileName}-${timestamp}.txt`
   const organization_id = req.body.organization_id || 1 // Define organization_id
   const user_id = req.body.user_id || 1 // Define user_id
-
+  console.log('Creating text file:', textFileName)
   if (!textString) {
     return res.status(400).json({ error: 'Missing text content' })
   }
@@ -535,7 +542,7 @@ router.post('/create-text-file', (req, res) => {
     organization_id,
     user_id,
     service: 'File processing',
-    audio_duration: 0,// Convert to minutes
+    audio_duration: 0, // Convert to minutes
     created_at: new Date()
   })
   // Send the file as the response
